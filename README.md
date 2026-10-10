@@ -9,7 +9,7 @@ everything cited, nothing sent or deleted without approval.
 ## Architecture
 
 ```
-scanner -> intake watcher -> registry (SQLite) -> analyzer (DeepSeek vision)
+scanner -> intake watcher -> registry (SQLite) -> analyzer (vision LLM -> cited facts)
                                                     |
  board (browse/review) <-- scheduler & tasks <------+
         |
@@ -21,7 +21,7 @@ scanner -> intake watcher -> registry (SQLite) -> analyzer (DeepSeek vision)
 | unit               | what                                      | port |
 |--------------------|-------------------------------------------|------|
 | `butler-intake`    | watches scan dirs, registers batches      | —    |
-| `butler-analyze`   | DeepSeek vision analysis -> cited facts   | —    |
+| `butler-analyze`   | vision analysis -> cited facts            | —    |
 | `butler-board`     | Kanban board (browse/review)              | 9500 |
 
 ## Quickstart
@@ -32,6 +32,8 @@ python3 -m butler.cli ingest        # register new scan runs
 python3 -m butler.cli analyze       # analyze all pending sheets
 python3 -m butler.cli analyze --sheet 1 --no-notify   # one sheet, quiet
 python3 -m butler.cli analyze-loop  # daemon: continuous analysis
+python3 -m butler.cli llm           # show analysis backend + probe endpoints
+python3 -m butler.cli llm monster   # switch analysis to the local monster model
 python3 -m butler.web               # board on :9500
 python3 -m butler.cli status        # what the registry knows
 ```
@@ -39,7 +41,7 @@ python3 -m butler.cli status        # what the registry knows
 ## Layout
 
 - `butler/` — package: `db` (SQLite), `intake` (watcher), `analyze` (vision
-  analysis), `llm` (provider adapter — DeepSeek now, local monster later),
+  analysis), `llm` (provider adapter — DeepSeek default, local `monster` option),
   `notify` (Telegram), `web` (Flask board), `cli`, `credentials`
 - `templates/`, `static/` — board UI
 - `golden/` — labeled test set + checker (QA)

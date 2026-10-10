@@ -1,10 +1,10 @@
-"""BUTLER CLI: python3 -m butler.cli {init|ingest|ingest-loop|analyze|analyze-loop|status}"""
+"""BUTLER CLI: python3 -m butler.cli {init|ingest|ingest-loop|analyze|analyze-loop|llm|status}"""
 import argparse
 import json
 import sys
 import time
 
-from . import db, intake
+from . import db, intake, llm
 from . import analyze as analyzer
 
 
@@ -60,6 +60,31 @@ def cmd_analyze_loop(a):
         time.sleep(a.interval)
 
 
+def cmd_llm(a):
+    if a.set:
+        path = llm.set_provider(a.set)
+        cfg = llm.get_config()
+        print(f"analysis backend -> {cfg['provider']}  ({path})")
+        print(f"  base_url: {cfg['base_url']}")
+        print(f"  model:    {cfg['model'] or 'auto (resolved from /v1/models)'}")
+        print("  (read on every analysis — no service restart needed)")
+        return 0
+    cfg = llm.get_config()
+    print(f"analysis backend: {cfg['provider']}")
+    print(f"  base_url: {cfg['base_url']}")
+    print(f"  model:    {cfg['model'] or 'auto (resolved from /v1/models)'}")
+    print(f"  timeout:  {cfg['timeout_s']}s · max_tokens {cfg['max_tokens']}")
+    if llm.CONFIG_PATH.exists():
+        print(f"  config:   {llm.CONFIG_PATH}")
+    else:
+        print(f"  config:   {llm.CONFIG_PATH} (not set — defaults)")
+    print()
+    for name in sorted(llm.PROVIDERS):
+        ok, detail = llm.probe(name)
+        print(f"  probe {name:9s} {'OK ' if ok else 'FAIL'} {detail}")
+    return 0
+
+
 def cmd_status(a):
     db.init()
     con = db.connect()
@@ -103,6 +128,11 @@ def main():
     p = sub.add_parser("analyze-loop", help="analyze pending sheets continuously (daemon)")
     p.add_argument("--interval", type=int, default=20)
     p.set_defaults(fn=cmd_analyze_loop)
+
+    p = sub.add_parser("llm", help="show or switch the analysis LLM backend")
+    p.add_argument("set", nargs="?", choices=sorted(llm.PROVIDERS), metavar="PROVIDER",
+                   help="switch backend: deepseek | monster (writes ~/.config/butler/llm.json)")
+    p.set_defaults(fn=cmd_llm)
 
     sub.add_parser("status", help="list batches and sheets").set_defaults(fn=cmd_status)
 

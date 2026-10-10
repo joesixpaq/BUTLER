@@ -14,7 +14,7 @@
 
 ## 2. Principles
 
-1. **Provider-agnostic LLM layer.** Analysis runs through one adapter. Now: **DeepSeek API** (`deepseek-flash`, native image input — verified 2026-09-25; page images are analyzed directly, no separate OCR step). Later: local LLM on `monster` — a config change, not a rewrite. *Conscious tradeoff (user decision): page images/text go to DeepSeek for analysis; raw scans and the full library stay local.*
+1. **Provider-agnostic LLM layer.** Analysis runs through one adapter. Now: **DeepSeek API** (`deepseek-flash`, native image input — verified 2026-09-25; page images are analyzed directly, no separate OCR step). **Live since 2026-10-10:** the local option is wired — `butler llm monster` switches analysis to the llama.cpp VLM on `monster` (tailnet; no key); DeepSeek remains the default. *Conscious tradeoff (user decision): page images/text go to DeepSeek for analysis; raw scans and the full library stay local.*
 2. **Never destructive.** Originals immutable; no auto-delete; no auto-send; no auto-pay.
 3. **Every claim cited.** Each extracted fact carries provenance (sheet/side). Unreadable → `unresolved`, never invented.
 4. **Confidence + review queue.** Low confidence → review pile; nothing silently misfiled.
@@ -47,7 +47,7 @@ scanner ─► intake watcher ─► registry (SQLite) ─► assembler (sheets�
 
 - All services on hermes-rpi5 as systemd `--user` units; SQLite for state; artifacts on disk; raw scans immutable.
 - Paths: `~/BUTLER/` — `var/butler.db`, `library/<year>/…`, `board/` (app), `PLAN.md` (this).
-- LLM: `deepseek-flash` via DeepSeek API; key auto-sourced from Hermes's own store (`~/.hermes/.env`, live-verified 2026-10-10); optional override `~/.config/butler/deepseek.key`. Local swap later = second adapter.
+- LLM: `deepseek-flash` via DeepSeek API; key auto-sourced from Hermes's own store (`~/.hermes/.env`, live-verified 2026-10-10); optional override `~/.config/butler/deepseek.key`. Local swap = live (`butler llm monster`; second adapter in `butler/llm.py`).
 - Board: LAN-only web app on hermes-rpi5, port **9500**, dark theme, minimal (Flask + SQLite + light JS).
 - systemd `--user` units: `butler-intake.service` (watcher, 30 s poll) · `butler-analyze.service` (vision analysis loop, 20 s) · `butler-board.service` (:9500).
 
@@ -105,7 +105,7 @@ Library layout: `~/BUTLER/library/<year>/<sender-or-category>/<mail-id>/` — si
 - **P2 — Analysis (DeepSeek):** ✅ done 2026-10-10 — vision analysis → cited facts (side+location) + per-mail summary; per-mail Telegram notification (batch-level arrival pings removed: "each mail is special"); board shows analysis (chips + facts table + re-analyze); golden set started (`golden/`, ALL PASS on test batch); needs_review flag → review queue.
 - **P3 — Planning & routing:** deadlines → reminders/.ics; QR-bill → payment prep; tasks; approvals from board/Telegram.
 - **P4 — Gated drafts:** reply drafts DE/EN/RU, form/return prep, print-ready outputs; audit.
-- **P5 — Later:** local LLM swap (monster) = config; business stream when it exists; full-text OCR (tesseract) if needed; retention optional.
+- **P5 — Later:** ~~local LLM swap (monster) = config~~ ✅ done 2026-10-10 (`butler llm` — DeepSeek default, monster local option); business stream when it exists; full-text OCR (tesseract) if needed; retention optional.
 
 ## 11. Reuse (do not rebuild)
 
@@ -139,3 +139,4 @@ Open minor items: DeepSeek key auto-sourced (no action needed); board live on :9
 - **2026-10-10** — v0.2: decisions locked (private-only, board, DeepSeek-now/local-later, user handles physical, single user, per-mail granularity). Vision capability of `deepseek-flash` confirmed from skill; OCR step unnecessary for v1.
 - **2026-10-10** — **P0 built & live**: registry (`var/butler.db`: batches+sheets), intake watcher (systemd, 30 s), Telegram notifications (delivery verified), **board v0** at :9500 (drag-status, sheet detail with front/back, batch PDF). Key wired from Hermes store (live API check HTTP 200). Legacy no-manifest run flagged by watcher.
 - **2026-10-10** — **P2 built & verified**: `llm.py` adapter + `analyze.py` (documents + cited facts, bounded retries, requeue) + `butler-analyze.service`; **board v1** shows analysis; per-mail Telegram pings (verified); **golden set ALL PASS** (17 checks on 2 sheets; independent pixel re-read by builder matched 100%, amounts internally balanced); repo live at github.com/joesixpaq/BUTLER. Cost ≈ 4.6–5.2k tokens & 9–13 s per sheet (deepseek-flash vision).
+- **2026-10-10** — **P2.5 — local LLM (monster) wired & verified (both sides)**: `butler/llm.py` now speaks OpenAI-compatible chat completions for two providers — `deepseek` (default) / `monster` (local llama.cpp VLM, Swift-1.5 Qwen3.8-Flash-Next, tailnet; no key); config `~/.config/butler/llm.json` (read per call), CLI `butler llm [monster|deepseek]`. Verified: DeepSeek regression (7 s/sheet, golden facts intact) + real 2-page vision check on monster → valid JSON, **all golden facts found** (~8.5 min/sheet, reasoning xhigh, hybrid CPU/GPU — the local tradeoff). Ops fix: `--fit-target 2560` (CUDA-OOM crash on vision requests while KittenTTS shares the GPU; launcher `~/LLAMA_CPP/start-llama8001.sh`, tmux `llama8001`, not a boot service). Hermes-side: provider entry refreshed + `agent.reasoning_overrides` → xhigh (global max breaks the model template); live routed turn verified (billing: custom @ monster.local:8001).

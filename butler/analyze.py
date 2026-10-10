@@ -187,7 +187,7 @@ def analyze_sheet(sid, notify=True, verbose=False):
         try:
             res = llm.analyze_images(prompt, paths, system=SYSTEM)
         except llm.LLMError as e:
-            att = _fail(con, sid, e, llm.MODEL)
+            att = _fail(con, sid, e, llm.model_label())
             if att >= MAX_ATTEMPTS and notify:
                 send_telegram(f"BUTLER: analysis FAILED for sheet {sid} "
                               f"({att} attempts): {e}")
