@@ -1,4 +1,4 @@
-"""BUTLER registry — SQLite schema and helpers (P0: batches + sheets)."""
+"""BUTLER registry — SQLite schema and helpers (P0: batches+sheets · P2: analyses+facts)."""
 import pathlib
 import sqlite3
 
@@ -31,6 +31,27 @@ CREATE TABLE IF NOT EXISTS sheets(
 );
 CREATE INDEX IF NOT EXISTS idx_sheets_batch ON sheets(batch_id);
 CREATE INDEX IF NOT EXISTS idx_sheets_status ON sheets(status);
+CREATE TABLE IF NOT EXISTS analyses(
+  id        INTEGER PRIMARY KEY,
+  sheet_id  INTEGER UNIQUE REFERENCES sheets(id),
+  ts        REAL,
+  model     TEXT,
+  status    TEXT,                   -- ok | error
+  error     TEXT,
+  json      TEXT,                   -- cleaned analysis JSON (documents, facts)
+  raw       TEXT,                   -- raw model reply (QA/debug)
+  attempts  INTEGER DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS facts(
+  id         INTEGER PRIMARY KEY,
+  sheet_id   INTEGER REFERENCES sheets(id),
+  doc_idx    INTEGER DEFAULT 0,
+  kind       TEXT,
+  value      TEXT,
+  citation   TEXT,
+  confidence REAL
+);
+CREATE INDEX IF NOT EXISTS idx_facts_sheet ON facts(sheet_id);
 """
 
 
@@ -44,3 +65,19 @@ def connect() -> sqlite3.Connection:
 def init() -> None:
     with connect() as con:
         con.executescript(SCHEMA)
+
+
+def set_status(sid: int, status: str) -> None:
+    with connect() as con:
+        con.execute("UPDATE sheets SET status=? WHERE id=?", (status, sid))
+
+
+def get_sheet(sid: int):
+    con = connect()
+    try:
+        return con.execute(
+            "SELECT s.*, b.folder, b.key AS batch_key, b.ts AS batch_ts "
+            "FROM sheets s JOIN batches b ON b.id=s.batch_id WHERE s.id=?", (sid,)
+        ).fetchone()
+    finally:
+        con.close()

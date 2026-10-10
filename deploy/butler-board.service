@@ -1,0 +1,14 @@
+[Unit]
+Description=BUTLER board (Kanban browser for scanned mail)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/hermes/BUTLER
+ExecStart=/usr/bin/python3 -m butler.web
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

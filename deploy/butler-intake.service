@@ -1,0 +1,15 @@
+[Unit]
+Description=BUTLER intake watcher (scan runs -> registry)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/hermes/BUTLER
+ExecStart=/usr/bin/python3 -m butler.cli ingest-loop --interval 30
+Restart=always
+RestartSec=5
+Nice=10
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

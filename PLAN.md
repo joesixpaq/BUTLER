@@ -49,7 +49,7 @@ scanner ─► intake watcher ─► registry (SQLite) ─► assembler (sheets�
 - Paths: `~/BUTLER/` — `var/butler.db`, `library/<year>/…`, `board/` (app), `PLAN.md` (this).
 - LLM: `deepseek-flash` via DeepSeek API; key auto-sourced from Hermes's own store (`~/.hermes/.env`, live-verified 2026-10-10); optional override `~/.config/butler/deepseek.key`. Local swap later = second adapter.
 - Board: LAN-only web app on hermes-rpi5, port **9500**, dark theme, minimal (Flask + SQLite + light JS).
-- systemd `--user` units: `butler-intake.service` (watcher, 30 s poll) · `butler-board.service` (:9500).
+- systemd `--user` units: `butler-intake.service` (watcher, 30 s poll) · `butler-analyze.service` (vision analysis loop, 20 s) · `butler-board.service` (:9500).
 
 ## 5. Board (browse & work UI)
 
@@ -102,7 +102,7 @@ Library layout: `~/BUTLER/library/<year>/<sender-or-category>/<mail-id>/` — si
 
 - **P0 — Intake (small):** watcher on `~/scans/direct/pull_*` (+ FTP dir later) → registry → sheets recorded → Telegram note. Idempotent (content hash).
 - **P1 — Assembly + Board v0:** sheets → mails grouping (blank/dupe handling); board v0: browse cards + sheet images + manual statuses. *(User's "browse whenever" requirement lands here.)*
-- **P2 — Analysis (DeepSeek):** vision analysis → cited facts + per-page text + per-mail summary; per-mail Telegram notification; board shows analysis; golden set starts; review queue.
+- **P2 — Analysis (DeepSeek):** ✅ done 2026-10-10 — vision analysis → cited facts (side+location) + per-mail summary; per-mail Telegram notification (batch-level arrival pings removed: "each mail is special"); board shows analysis (chips + facts table + re-analyze); golden set started (`golden/`, ALL PASS on test batch); needs_review flag → review queue.
 - **P3 — Planning & routing:** deadlines → reminders/.ics; QR-bill → payment prep; tasks; approvals from board/Telegram.
 - **P4 — Gated drafts:** reply drafts DE/EN/RU, form/return prep, print-ready outputs; audit.
 - **P5 — Later:** local LLM swap (monster) = config; business stream when it exists; full-text OCR (tesseract) if needed; retention optional.
@@ -110,7 +110,7 @@ Library layout: `~/BUTLER/library/<year>/<sender-or-category>/<mail-id>/` — si
 ## 11. Reuse (do not rebuild)
 
 - Scanner kit `~/lan-plan/` — pull-scan, extract, FTP receiver, manifest (verified 2026-10-10).
-- **DeepSeek API** — `deepseek-flash` (vision), OpenAI-compatible; key file `~/.config/butler/deepseek.key`.
+- **DeepSeek API** — `deepseek-flash` (vision), OpenAI-compatible; key auto-sourced (`~/.hermes/.env`), optional override `~/.config/butler/deepseek.key`.
 - Telegram (this chat) for per-mail notifications/approvals; himalaya for digital correspondence later.
 - Skills: document-to-action-items, email-inbox-triage, weekly-review-planning, grounded-citations.
 - Conventions: single PLAN.md per project; git-tracked.
@@ -138,3 +138,4 @@ Open minor items: DeepSeek key auto-sourced (no action needed); board live on :9
 - **2026-10-10** — PLAN v0.1 drafted. Scanner duplex pipeline verified; inventory: PyMuPDF + OpenCV present; tesseract absent; llm-gate down; tracker/dashboard up.
 - **2026-10-10** — v0.2: decisions locked (private-only, board, DeepSeek-now/local-later, user handles physical, single user, per-mail granularity). Vision capability of `deepseek-flash` confirmed from skill; OCR step unnecessary for v1.
 - **2026-10-10** — **P0 built & live**: registry (`var/butler.db`: batches+sheets), intake watcher (systemd, 30 s), Telegram notifications (delivery verified), **board v0** at :9500 (drag-status, sheet detail with front/back, batch PDF). Key wired from Hermes store (live API check HTTP 200). Legacy no-manifest run flagged by watcher.
+- **2026-10-10** — **P2 built & verified**: `llm.py` adapter + `analyze.py` (documents + cited facts, bounded retries, requeue) + `butler-analyze.service`; **board v1** shows analysis; per-mail Telegram pings (verified); **golden set ALL PASS** (17 checks on 2 sheets; independent pixel re-read by builder matched 100%, amounts internally balanced); repo live at github.com/joesixpaq/BUTLER. Cost ≈ 4.6–5.2k tokens & 9–13 s per sheet (deepseek-flash vision).

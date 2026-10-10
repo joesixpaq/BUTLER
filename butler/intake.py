@@ -2,13 +2,15 @@
 
 A "run" is a folder produced by brother-pull-scan.py that contains manifest.json.
 Runs without a manifest (legacy/pre-pipeline) are reported but not registered.
+
+P2: no batch-level arrival ping — notifications are per mail, sent by the
+analyzer after reading (spec: "each mail is special").
 """
 import json
 import pathlib
 import time
 
 from . import db
-from .notify import send_telegram
 
 SCAN_DIRS = [
     pathlib.Path.home() / "scans" / "direct",
@@ -71,10 +73,8 @@ def ingest(notify: bool = True, verbose: bool = False):
     finally:
         con.close()
 
-    if new and notify:
-        lines = "; ".join(f"{k} · {n} sheet(s)" for k, n in new)
-        msg = f"BUTLER: {len(new)} new batch registered — {lines}"
-        if skipped:
-            msg += f"\n(legacy skipped: {', '.join(skipped)})"
-        send_telegram(msg)
+    if new and verbose:
+        print(f"[intake] registered: {new}")
+    if skipped and verbose:
+        print(f"[intake] legacy skipped: {skipped}")
     return new, skipped

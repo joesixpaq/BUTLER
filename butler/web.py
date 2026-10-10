@@ -1,10 +1,11 @@
-"""BUTLER board — Kanban-style browser for scanned mail (v0).
+"""BUTLER board — Kanban browser for scanned mail (v1, P2: analysis-aware).
 
 Run:  python3 -m butler.web      (systemd: butler-board.service, port 9500)
 
-Columns = sheet statuses. One card per sheet (front thumbnail).
-Detail view: front/back images, status change, batch PDF.
+Columns = sheet statuses. Cards show the analyzed mail (title, chips, key
+facts); detail view = front/back images + full analysis (cited facts).
 """
+import json
 import pathlib
 
 from flask import (Flask, abort, jsonify, redirect, render_template,
@@ -20,8 +21,10 @@ def _sheet_row(sid):
     con = db.connect()
     try:
         return con.execute(
-            "SELECT s.*, b.folder, b.key AS batch_key, b.ts AS batch_ts, b.note AS batch_note "
-            "FROM sheets s JOIN batches b ON b.id = s.batch_id WHERE s.id = ?", (sid,)
+            "SELECT s.*, b.folder, b.key AS batch_key, b.ts AS batch_ts, b.note AS batch_note, "
+            "a.status AS astatus, a.error AS aerror, a.json AS ajson "
+            "FROM sheets s JOIN batches b ON b.id = s.batch_id "
+            "LEFT JOIN analyses a ON a.sheet_id = s.id WHERE s.id = ?", (sid,)
         ).fetchone()
     finally:
         con.close()
@@ -45,11 +48,22 @@ def board():
     con = db.connect()
     try:
         rows = [dict(r) for r in con.execute(
-            "SELECT s.*, b.key AS batch_key, b.ts AS batch_ts "
-            "FROM sheets s JOIN batches b ON b.id = s.batch_id ORDER BY s.id")]
+            "SELECT s.*, b.key AS batch_key, b.ts AS batch_ts, "
+            "a.status AS astatus, a.error AS aerror, a.json AS ajson "
+            "FROM sheets s JOIN batches b ON b.id = s.batch_id "
+            "LEFT JOIN analyses a ON a.sheet_id = s.id ORDER BY s.id")]
         n_batches = con.execute("SELECT COUNT(*) FROM batches").fetchone()[0]
     finally:
         con.close()
+    for r in rows:
+        r["analysis"] = None
+        r["docs"] = []
+        if r.get("ajson"):
+            try:
+                r["analysis"] = json.loads(r["ajson"])
+                r["docs"] = r["analysis"].get("documents") or []
+            except (TypeError, json.JSONDecodeError):
+                pass
     cols = {st: [] for st in db.SHEET_STATUSES}
     for r in rows:
         cols.setdefault(r["status"], []).append(r)
@@ -62,8 +76,21 @@ def sheet_view(sid):
     s = _sheet_row(sid)
     if not s:
         abort(404)
+    analysis = None
+    if s["ajson"]:
+        try:
+            analysis = json.loads(s["ajson"])
+        except (TypeError, json.JSONDecodeError):
+            analysis = None
     pdf = _batch_pdf(s["folder"])
-    return render_template("sheet.html", s=s, statuses=db.SHEET_STATUSES, pdf=pdf)
+    con = db.connect()
+    try:
+        facts = [dict(f) for f in con.execute(
+            "SELECT * FROM facts WHERE sheet_id=? ORDER BY doc_idx, id", (sid,))]
+    finally:
+        con.close()
+    return render_template("sheet.html", s=s, statuses=db.SHEET_STATUSES, pdf=pdf,
+                           analysis=analysis, facts=facts)
 
 
 @app.get("/img/<int:sid>/<side>")
@@ -108,6 +135,22 @@ def set_status(sid):
     if request.form:
         return redirect(url_for("sheet_view", sid=sid))
     return jsonify(ok=True, status=st)
+
+
+@app.post("/api/sheet/<int:sid>/requeue")
+def requeue(sid):
+    """Drop the analysis and put the sheet back in the queue (re-analyze)."""
+    con = db.connect()
+    try:
+        con.execute("DELETE FROM analyses WHERE sheet_id = ?", (sid,))
+        con.execute("DELETE FROM facts WHERE sheet_id = ?", (sid,))
+        con.execute("UPDATE sheets SET status = 'inbox' WHERE id = ?", (sid,))
+        con.commit()
+    finally:
+        con.close()
+    if request.form:
+        return redirect(url_for("sheet_view", sid=sid))
+    return jsonify(ok=True)
 
 
 def main():

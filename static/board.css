@@ -31,3 +31,21 @@ dd{margin:0}
 a{color:var(--accent);text-decoration:none}
 .back{font-size:13px}
 select,button{background:#222634;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:4px 8px}
+.chips{display:flex;gap:4px;flex-wrap:wrap;margin:4px 0 2px}
+.chip{background:#2b3040;border:1px solid var(--line);border-radius:999px;padding:1px 7px;font-size:10px;color:var(--dim)}
+.chip.pri{color:#fff}
+.pri-p0{background:#c0392b;border-color:#c0392b}
+.pri-p1{background:#e67e22;border-color:#e67e22}
+.pri-p2{background:#2980b9;border-color:#2980b9}
+.pri-p3{background:#3a4150}
+.chip.warn{background:#7a6a1f;border-color:#7a6a1f;color:#ffe9a8}
+.factsline{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--dim);font-size:11px;margin-top:2px}
+.analysis{padding:0 16px 28px;max-width:980px}
+.analysis .doc{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:12px 0}
+.doc h3{margin:0 0 6px;font-size:15px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.who{color:var(--dim);font-size:12px;margin:2px 0 8px}
+table.facts{border-collapse:collapse;width:100%;font-size:12.5px;margin-top:8px}
+table.facts th{color:var(--dim);text-align:left;font-weight:500;border-bottom:1px solid var(--line);padding:3px 8px 3px 0}
+table.facts td{border-bottom:1px solid var(--line);padding:3px 8px 3px 0;vertical-align:top}
+.dim{color:var(--dim)}
+.error{color:#ffb4a8}

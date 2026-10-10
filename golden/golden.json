@@ -1,0 +1,20 @@
+{
+  "comment": "Golden set v0 — expected values for the first labeled batch (verified by human-level reading 2026-10-10). check.py compares stored analyses against this.",
+  "batch_key": "direct/pull_20261010_213755",
+  "sheets": {
+    "1": {
+      "expect_docs": 1,
+      "category": "employer",
+      "priority_in": ["P2", "P3"],
+      "facts_contains": ["7'850.00", "6'615.65", "CH74 0078 4420 0677 9200 1", "18.09.2026", "416.05"],
+      "notes_contains_any": ["sketch", "Sketch", "Skizze", "doodle", "drawing"]
+    },
+    "2": {
+      "expect_docs": 1,
+      "category": "official",
+      "priority_in": ["P0", "P1"],
+      "facts_contains": ["31. Juli 2026", "756.2302.4657.32", "34024424", "Makhrova"],
+      "deadline": "31. Juli 2026"
+    }
+  }
+}

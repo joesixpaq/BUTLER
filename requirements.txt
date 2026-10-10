@@ -1,0 +1,2 @@
+flask>=3.0
+# optional: Pillow (or OpenCV) for image downscaling before LLM calls

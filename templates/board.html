@@ -17,13 +17,34 @@
     <h2>{{ st }} <span class="count">{{ cols[st]|length }}</span></h2>
     <div class="cards">
       {% for s in cols[st] %}
+      {% set d = s.docs[0] if s.docs else None %}
       <article class="card" draggable="true" data-id="{{ s.id }}">
         <a href="{{ url_for('sheet_view', sid=s.id) }}">
           <img src="{{ url_for('img', sid=s.id, side='front') }}" alt="sheet {{ s.sheet_no }} front" loading="lazy">
         </a>
         <div class="card-body">
+          {% if d %}
+          <div class="title">{{ d.title }}</div>
+          <div class="chips">
+            <span class="chip pri pri-{{ (d.priority or 'p3')|lower }}">{{ d.priority or 'P3' }}</span>
+            <span class="chip">{{ d.category }}</span>
+            {% if d.needs_review %}<span class="chip warn">review</span>{% endif %}
+            {% if s.docs|length > 1 %}<span class="chip">+{{ s.docs|length - 1 }} more</span>{% endif %}
+          </div>
+          <div class="factsline">{{ d.sender or '—' }}{% for f in d.facts[:2] %} · {{ f.kind }}: {{ f.value }}{% endfor %}</div>
+          {% elif s.status == 'analyzing' %}
+          <div class="title">reading…</div>
+          <div class="factsline">sheet {{ s.sheet_no }} · {{ s.batch_key.split('/')[-1] }}</div>
+          {% elif s.astatus == 'error' %}
+          <div class="title">analysis failed</div>
+          <div class="factsline">sheet {{ s.sheet_no }} — open card to retry</div>
+          {% elif s.astatus == 'ok' %}
+          <div class="title">no mail detected</div>
+          <div class="factsline">sheet {{ s.sheet_no }} · blank?</div>
+          {% else %}
           <div class="title">Sheet {{ s.sheet_no }} <span class="batch">· {{ s.batch_key.split('/')[-1] }}</span></div>
-          <div class="sub2">{{ s.batch_ts }}</div>
+          <div class="factsline">waiting for analysis</div>
+          {% endif %}
         </div>
       </article>
       {% endfor %}

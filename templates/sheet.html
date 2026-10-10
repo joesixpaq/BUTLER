@@ -33,8 +33,49 @@
         </form>
       </dd>
       {% if pdf %}<dt>pdf</dt><dd><a href="{{ url_for('pdf', bid=s.batch_id) }}">open batch PDF</a></dd>{% endif %}
+      <dt>analysis</dt>
+      <dd>
+        {% if s.astatus == 'ok' %}done{% elif s.astatus == 'error' %}failed{% else %}pending{% endif %}
+        <form method="post" action="{{ url_for('requeue', sid=s.id) }}" style="display:inline">
+          <button type="submit" title="delete analysis and analyze again">re-analyze</button>
+        </form>
+      </dd>
     </dl>
   </aside>
 </section>
+
+{% if analysis and analysis.documents %}
+<section class="analysis">
+  {% for d in analysis.documents %}
+  <article class="doc">
+    <h3>{{ d.title }}
+      <span class="chip pri pri-{{ (d.priority or 'p3')|lower }}">{{ d.priority or 'P3' }}</span>
+      <span class="chip">{{ d.category }}</span>
+      <span class="chip">{{ d.disposition }}</span>
+      <span class="chip">{{ d.language }}</span>
+      {% if d.needs_review %}<span class="chip warn">needs review{% if d.review_reason %}: {{ d.review_reason }}{% endif %}</span>{% endif %}
+    </h3>
+    <p class="who">{{ d.sender or '—' }}{% if d.recipient %} → {{ d.recipient }}{% endif %} · sides: {{ d.sides|join(', ') or '—' }}</p>
+    <p>{{ d.summary }}</p>
+    {% if d.content_notes %}<p class="dim">{{ d.content_notes }}</p>{% endif %}
+    {% if d.facts %}
+    <table class="facts">
+      <tr><th>fact</th><th>value</th><th>citation</th><th>conf</th></tr>
+      {% for f in d.facts %}
+      <tr><td>{{ f.kind }}</td><td>{{ f.value }}</td><td class="dim">{{ f.citation }}</td><td class="dim">{{ f.confidence if f.confidence is not none else '' }}</td></tr>
+      {% endfor %}
+    </table>
+    {% endif %}
+  </article>
+  {% endfor %}
+  {% if analysis.sheet_notes %}<p class="dim">sheet notes: {{ analysis.sheet_notes }}</p>{% endif %}
+</section>
+{% elif s.astatus == 'error' %}
+<section class="analysis error"><b>analysis failed:</b> {{ s.aerror }}</section>
+{% elif s.status == 'analyzing' %}
+<section class="analysis"><p class="dim">analyzing…</p></section>
+{% else %}
+<section class="analysis"><p class="dim">not analyzed yet — press “re-analyze” or wait for the analyzer loop.</p></section>
+{% endif %}
 </body>
 </html>

@@ -1,0 +1,16 @@
+[Unit]
+Description=BUTLER analyzer (DeepSeek vision: sheets -> cited facts)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/hermes/BUTLER
+ExecStart=/usr/bin/python3 -m butler.cli analyze-loop --interval 20
+Restart=always
+RestartSec=10
+Nice=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target
