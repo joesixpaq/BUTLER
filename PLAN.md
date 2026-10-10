@@ -23,7 +23,7 @@
 
 ## 3. The loop — Milestone 1: the 3-minute mail session
 
-1. Mail stack is scanned (`~/lan-plan/brother-pull-scan.py`; trigger: me / button / FTP).
+1. Mail stack is scanned (`~/lan-plan/brother-pull-scan.py`; trigger: **auto — scan-watch poller** / me / button / FTP).
 2. Intake watcher registers the batch → sheets recorded from the scan manifest.
 3. Assembly groups sheets → **mails** (a mail = 1..n sheets; reading order, blank backs, duplicates).
 4. Analysis (DeepSeek vision): per-mail structured facts with citations + per-page text.
@@ -49,7 +49,7 @@ scanner ─► intake watcher ─► registry (SQLite) ─► assembler (sheets�
 - Paths: `~/BUTLER/` — `var/butler.db`, `library/<year>/…`, `board/` (app), `PLAN.md` (this).
 - LLM: `deepseek-flash` via DeepSeek API; key auto-sourced from Hermes's own store (`~/.hermes/.env`, live-verified 2026-10-10); optional override `~/.config/butler/deepseek.key`. Local swap = live (`butler llm monster`; second adapter in `butler/llm.py`).
 - Board: LAN-only web app on hermes-rpi5, port **9500**, dark theme, minimal (Flask + SQLite + light JS).
-- systemd `--user` units: `butler-intake.service` (watcher, 30 s poll) · `butler-analyze.service` (vision analysis loop, 20 s) · `butler-board.service` (:9500).
+- systemd `--user` units: `butler-intake.service` (watcher, 30 s poll) · `butler-analyze.service` (vision analysis loop, 20 s) · `butler-board.service` (:9500) · `scan-watch.service` (ADS-1000W auto-grab: ICMP watch + scan attempts → intake).
 
 ## 5. Board (browse & work UI)
 
@@ -140,3 +140,4 @@ Open minor items: DeepSeek key auto-sourced (no action needed); board live on :9
 - **2026-10-10** — **P0 built & live**: registry (`var/butler.db`: batches+sheets), intake watcher (systemd, 30 s), Telegram notifications (delivery verified), **board v0** at :9500 (drag-status, sheet detail with front/back, batch PDF). Key wired from Hermes store (live API check HTTP 200). Legacy no-manifest run flagged by watcher.
 - **2026-10-10** — **P2 built & verified**: `llm.py` adapter + `analyze.py` (documents + cited facts, bounded retries, requeue) + `butler-analyze.service`; **board v1** shows analysis; per-mail Telegram pings (verified); **golden set ALL PASS** (17 checks on 2 sheets; independent pixel re-read by builder matched 100%, amounts internally balanced); repo live at github.com/joesixpaq/BUTLER. Cost ≈ 4.6–5.2k tokens & 9–13 s per sheet (deepseek-flash vision).
 - **2026-10-10** — **P2.5 — local LLM (monster) wired & verified (both sides)**: `butler/llm.py` now speaks OpenAI-compatible chat completions for two providers — `deepseek` (default) / `monster` (local llama.cpp VLM, Swift-1.5 Qwen3.8-Flash-Next, tailnet; no key); config `~/.config/butler/llm.json` (read per call), CLI `butler llm [monster|deepseek]`. Verified: DeepSeek regression (7 s/sheet, golden facts intact) + real 2-page vision check on monster → valid JSON, **all golden facts found** (~8.5 min/sheet, reasoning xhigh, hybrid CPU/GPU — the local tradeoff). Ops fix: `--fit-target 2560` (CUDA-OOM crash on vision requests while KittenTTS shares the GPU; launcher `~/LLAMA_CPP/start-llama8001.sh`, tmux `llama8001`, not a boot service). Hermes-side: provider entry refreshed + `agent.reasoning_overrides` → xhigh (global max breaks the model template); live routed turn verified (billing: custom @ monster.local:8001).
+- **2026-10-11** — **scan-watch auto-grab live**: `~/lan-plan/scan-watch.py` + `scan-watch.service` (user unit, boot-enabled). Watches the ADS-1000W over ICMP (never TCP-probes the fragile 54921 idle), scans **on the online transition, then every 2 min** while online; flock single-flight; empty (0xC2) keeps cadence, relaxes to 5 min after ~20 min idle; busy×3 → Telegram alert + suspend until power-cycle; captures land in `~/scans/direct/pull_*` → intake registers them. Empty-feeder e2e verified (rc=3, ~8 s, +120 s cadence). Feeder-detection research **closed**: the `adf` field, EWS text and the full SNMP tree (~1900 OIDs, load/unload/wake matrix) expose **no** paper state — the scan attempt (`0xC2`) is the only test. New kit scripts: `snmp_probe.py`, `snmp_watch.py`.

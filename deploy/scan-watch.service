@@ -1,0 +1,15 @@
+[Unit]
+Description=scan-watch — ADS-1000W auto-scan watcher (feeds BUTLER intake)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/hermes/lan-plan
+ExecStart=/usr/bin/python3 /home/hermes/lan-plan/scan-watch.py
+Restart=always
+RestartSec=10
+Nice=10
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target
