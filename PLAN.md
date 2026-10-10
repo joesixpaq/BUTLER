@@ -1,6 +1,6 @@
 # BUTLER — mail triage & task planning
 
-**Status:** v0.2 (2026-10-10) — decisions locked with Дмитрий · **Owner:** Дмитрий · **Builder:** Hermes (hermes-rpi5)
+**Status:** v0.3 (2026-10-11) — P0–P2.5 + **scan-watch auto-grab live**; registry cleaned for go-live; **next: first real mail end-to-end** (open: analysis backend DeepSeek ↔ monster) · **Owner:** Дмитрий · **Builder:** Hermes (hermes-rpi5)
 
 **One line:** scans of incoming postal mail go in; per-mail analysis, a browsable board, tasks and reminders come out — everything cited, nothing sent or deleted without approval.
 
@@ -109,7 +109,7 @@ Library layout: `~/BUTLER/library/<year>/<sender-or-category>/<mail-id>/` — si
 
 ## 11. Reuse (do not rebuild)
 
-- Scanner kit `~/lan-plan/` — pull-scan, extract, FTP receiver, manifest (verified 2026-10-10).
+- Scanner kit `~/lan-plan/` — pull-scan, extract, FTP receiver, manifest, **scan-watch auto-grab** (verified 2026-10-11).
 - **DeepSeek API** — `deepseek-flash` (vision), OpenAI-compatible; key auto-sourced (`~/.hermes/.env`), optional override `~/.config/butler/deepseek.key`.
 - Telegram (this chat) for per-mail notifications/approvals; himalaya for digital correspondence later.
 - Skills: document-to-action-items, email-inbox-triage, weekly-review-planning, grounded-citations.
@@ -141,3 +141,4 @@ Open minor items: DeepSeek key auto-sourced (no action needed); board live on :9
 - **2026-10-10** — **P2 built & verified**: `llm.py` adapter + `analyze.py` (documents + cited facts, bounded retries, requeue) + `butler-analyze.service`; **board v1** shows analysis; per-mail Telegram pings (verified); **golden set ALL PASS** (17 checks on 2 sheets; independent pixel re-read by builder matched 100%, amounts internally balanced); repo live at github.com/joesixpaq/BUTLER. Cost ≈ 4.6–5.2k tokens & 9–13 s per sheet (deepseek-flash vision).
 - **2026-10-10** — **P2.5 — local LLM (monster) wired & verified (both sides)**: `butler/llm.py` now speaks OpenAI-compatible chat completions for two providers — `deepseek` (default) / `monster` (local llama.cpp VLM, Swift-1.5 Qwen3.8-Flash-Next, tailnet; no key); config `~/.config/butler/llm.json` (read per call), CLI `butler llm [monster|deepseek]`. Verified: DeepSeek regression (7 s/sheet, golden facts intact) + real 2-page vision check on monster → valid JSON, **all golden facts found** (~8.5 min/sheet, reasoning xhigh, hybrid CPU/GPU — the local tradeoff). Ops fix: `--fit-target 2560` (CUDA-OOM crash on vision requests while KittenTTS shares the GPU; launcher `~/LLAMA_CPP/start-llama8001.sh`, tmux `llama8001`, not a boot service). Hermes-side: provider entry refreshed + `agent.reasoning_overrides` → xhigh (global max breaks the model template); live routed turn verified (billing: custom @ monster.local:8001).
 - **2026-10-11** — **scan-watch auto-grab live**: `~/lan-plan/scan-watch.py` + `scan-watch.service` (user unit, boot-enabled). Watches the ADS-1000W over ICMP (never TCP-probes the fragile 54921 idle), scans every 2 min while online — **first attempt waits 2 min after first detection** (settle window; user correction 2026-10-11); flock single-flight; empty (0xC2) keeps cadence, relaxes to 5 min after ~20 min idle; busy×3 → Telegram alert + suspend until power-cycle; captures land in `~/scans/direct/pull_*` → intake registers them. Empty-feeder e2e verified (rc=3, ~8 s); full state machine re-verified with a scripted fake-scanner test (settle window, empty/capture/busy/wedge-alert paths). Feeder-detection research **closed**: the `adf` field, EWS text and the full SNMP tree (~1900 OIDs, load/unload/wake matrix) expose **no** paper state — the scan attempt (`0xC2`) is the only test. New kit scripts: `snmp_probe.py`, `snmp_watch.py`.
+- **2026-10-11** — **Go-live prep / state**: auto-grab settled (first attempt +2 min after detection, user rule); **registry reset** — test batch `pull_20261010_213755` deleted (2 sheets, 2 analyses, 39 facts), run folder archived to `~/scans/archive/` (intake key-based idempotency would otherwise re-register it in ≤30 s), DB backed up to `var/butler.db.bak-20261011-011038`; legacy no-manifest run `pull_20261010_212523` left in place (never registered). Board empty; all services green (scan-watch, intake, analyze, board); **awaiting the first real mail end-to-end** (open decision: analysis backend DeepSeek ↔ monster).
