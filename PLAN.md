@@ -47,8 +47,9 @@ scanner ─► intake watcher ─► registry (SQLite) ─► assembler (sheets�
 
 - All services on hermes-rpi5 as systemd `--user` units; SQLite for state; artifacts on disk; raw scans immutable.
 - Paths: `~/BUTLER/` — `var/butler.db`, `library/<year>/…`, `board/` (app), `PLAN.md` (this).
-- LLM config: `LLM_PROVIDER=deepseek` · `LLM_MODEL=deepseek-flash` · key at `~/.config/butler/deepseek.key` (see README there). Local swap later: point base_url at monster.
-- Board: LAN-only web app on hermes-rpi5, port **9500** (free as of 2026-10-10), dark theme, minimal (FastAPI/Flask + SQLite + light JS).
+- LLM: `deepseek-flash` via DeepSeek API; key auto-sourced from Hermes's own store (`~/.hermes/.env`, live-verified 2026-10-10); optional override `~/.config/butler/deepseek.key`. Local swap later = second adapter.
+- Board: LAN-only web app on hermes-rpi5, port **9500**, dark theme, minimal (Flask + SQLite + light JS).
+- systemd `--user` units: `butler-intake.service` (watcher, 30 s poll) · `butler-board.service` (:9500).
 
 ## 5. Board (browse & work UI)
 
@@ -123,7 +124,7 @@ Library layout: `~/BUTLER/library/<year>/<sender-or-category>/<mail-id>/` — si
 5. **Single user; multiple languages.**
 6. **Each mail is special: per-mail cards/notifications** — no batch lumping.
 
-Open minor items: DeepSeek key file to be created by user; board port 9500 (verify at build); board LAN-open (like other homelab services) — flag if auth wanted.
+Open minor items: DeepSeek key auto-sourced (no action needed); board live on :9500, LAN-open like other homelab services (add auth later if wanted).
 
 ## 13. Risks
 
@@ -136,3 +137,4 @@ Open minor items: DeepSeek key file to be created by user; board port 9500 (veri
 
 - **2026-10-10** — PLAN v0.1 drafted. Scanner duplex pipeline verified; inventory: PyMuPDF + OpenCV present; tesseract absent; llm-gate down; tracker/dashboard up.
 - **2026-10-10** — v0.2: decisions locked (private-only, board, DeepSeek-now/local-later, user handles physical, single user, per-mail granularity). Vision capability of `deepseek-flash` confirmed from skill; OCR step unnecessary for v1.
+- **2026-10-10** — **P0 built & live**: registry (`var/butler.db`: batches+sheets), intake watcher (systemd, 30 s), Telegram notifications (delivery verified), **board v0** at :9500 (drag-status, sheet detail with front/back, batch PDF). Key wired from Hermes store (live API check HTTP 200). Legacy no-manifest run flagged by watcher.

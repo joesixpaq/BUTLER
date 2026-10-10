@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BUTLER — mail board</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='board.css') }}">
+</head>
+<body>
+<header>
+  <h1>BUTLER <span class="sub">mail board</span></h1>
+  <div class="meta">{{ total }} sheet(s) · {{ batches }} batch(es) · drag cards between columns</div>
+</header>
+<main class="board">
+  {% for st in statuses %}
+  <section class="col" data-status="{{ st }}">
+    <h2>{{ st }} <span class="count">{{ cols[st]|length }}</span></h2>
+    <div class="cards">
+      {% for s in cols[st] %}
+      <article class="card" draggable="true" data-id="{{ s.id }}">
+        <a href="{{ url_for('sheet_view', sid=s.id) }}">
+          <img src="{{ url_for('img', sid=s.id, side='front') }}" alt="sheet {{ s.sheet_no }} front" loading="lazy">
+        </a>
+        <div class="card-body">
+          <div class="title">Sheet {{ s.sheet_no }} <span class="batch">· {{ s.batch_key.split('/')[-1] }}</span></div>
+          <div class="sub2">{{ s.batch_ts }}</div>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+  {% endfor %}
+</main>
+<script src="{{ url_for('static', filename='board.js') }}"></script>
+</body>
+</html>

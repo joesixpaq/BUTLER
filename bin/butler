@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# BUTLER CLI wrapper:  butler init | ingest | status
+cd /home/hermes/BUTLER || exit 1
+exec python3 -m butler.cli "$@"

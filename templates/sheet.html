@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BUTLER — sheet {{ s.id }}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='board.css') }}">
+</head>
+<body>
+<header>
+  <h1>Sheet {{ s.sheet_no }} <span class="sub">{{ s.batch_key }}</span></h1>
+  <a class="back" href="/">← board</a>
+</header>
+<section class="detail">
+  <div class="imgs">
+    <figure><img src="{{ url_for('img', sid=s.id, side='front') }}" alt="front"><figcaption>front</figcaption></figure>
+    {% if s.back %}
+    <figure><img src="{{ url_for('img', sid=s.id, side='back') }}" alt="back"><figcaption>back</figcaption></figure>
+    {% endif %}
+  </div>
+  <aside>
+    <dl>
+      <dt>batch</dt><dd>{{ s.batch_key }}</dd>
+      <dt>scanned</dt><dd>{{ s.batch_ts }}</dd>
+      {% if s.batch_note %}<dt>note</dt><dd>{{ s.batch_note }}</dd>{% endif %}
+      <dt>status</dt>
+      <dd>
+        <form method="post" action="{{ url_for('set_status', sid=s.id) }}">
+          <select name="status">
+            {% for st in statuses %}<option value="{{ st }}" {% if st == s.status %}selected{% endif %}>{{ st }}</option>{% endfor %}
+          </select>
+          <button type="submit">save</button>
+        </form>
+      </dd>
+      {% if pdf %}<dt>pdf</dt><dd><a href="{{ url_for('pdf', bid=s.batch_id) }}">open batch PDF</a></dd>{% endif %}
+    </dl>
+  </aside>
+</section>
+</body>
+</html>
