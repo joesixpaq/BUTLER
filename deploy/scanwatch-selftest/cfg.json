@@ -1,0 +1,19 @@
+{
+  "host": "127.0.0.1",
+  "pull_script": "/tmp/swtest/fake-scan.py",
+  "scan_out": "/tmp/swtest/out",
+  "duplex": true,
+  "mode": "color",
+  "ping_interval": 5,
+  "scan_interval": 8,
+  "idle_stretch_after": 99,
+  "idle_interval": 300,
+  "busy_backoff": 10,
+  "busy_alert_limit": 3,
+  "error_alert_limit": 3,
+  "capture_cooldown": 3,
+  "attempt_timeout": 30,
+  "log_file": "/tmp/swtest/log.txt",
+  "state_file": "/tmp/swtest/state.json",
+  "telegram_alerts": false
+}
