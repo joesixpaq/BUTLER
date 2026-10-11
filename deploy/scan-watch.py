@@ -1,45 +1,27 @@
 #!/usr/bin/env python3
-"""scan-watch — automatic ADS-1000W scan grabber for the BUTLER mail pipeline.
+"""scan-watch — ADS-1000W scan grabber for the BUTLER mail pipeline (on-demand).
 
-Behaviour
-  OFFLINE: ICMP ping every `ping_interval` (default 90 s; ICMP only — never a
-           TCP probe of 54921, which can wedge the device).
-  On first detection online: wait one `scan_interval` (default 120 s) before the
-  first attempt (settle window), then attempt every `scan_interval` while online
-  (relaxing to `idle_interval` after `idle_stretch_after` consecutive empties).
-  A captured run lands in `scan_out` (~/scans/direct/pull_<ts>/) where the
-  butler-intake service registers it automatically — no notification here
-  (BUTLER pings per mail, not per batch).
-
-  MANUAL SESSION MODE (2026-10-11, button-driven one-by-one feeding):
-  Anything that writes `request_file` (the board's "Scan sheet" / "Finish batch"
-  buttons) drives an immediate, user-paced flow:
-    - {"action": "scan"}  -> immediate scan attempt (settle is skipped — the
-      user vouches for the feeder). The first capture OPENS a session; further
-      captures extend it. Each capture is still one immutable pull_<ts> run;
-      membership is recorded in `sessions_dir`/<id>.json, and intake registers
-      the session as ONE batch once it is closed.
+Behaviour (2026-10-11 rev-2 — user decision: NO automatic scanning)
+  ONLINE/OFFLINE: ICMP ping every `ping_interval` (default 90 s; ICMP only —
+  never a TCP probe of 54921, which can wedge the device). The board's status
+  dot reads the mode from the state file.
+  SCANS HAPPEN ONLY ON REQUEST (`request_file`, written by the board's
+  "Scan sheet" / "Finish batch" buttons — no other channel):
+    - {"action": "scan"}  -> one scan attempt of whatever is in the feeder.
+      The first capture OPENS a session; further captures extend it; each
+      capture is one immutable pull_<ts> run (membership recorded in
+      `sessions_dir`; intake registers the session as ONE batch once closed).
     - {"action": "finish"} -> closes the session.
-    - While a session is open, AMBIENT attempts pause (the user drives); they
-      resume after close. The session also closes on: idle timeout
-      (`session_idle_close`), scanner going offline, scan-watch stopping, or a
-      session found still open at startup (crash recovery).
-    - Results (rc, sheet count, note) are written to the state file as
-      `last_request` / `session` / `last_session` for the board to display.
-
-Exit-code handling (brother-pull-scan.py)
-  0 capture      -> log, `capture_cooldown`, continue
-  3 empty (0xC2) -> log, continue (cadence relaxes to `idle_interval` after
-                    `idle_stretch_after` consecutive empties)
-  2 busy         -> `busy_backoff` (10 min); `busy_alert_limit` (3) in a row ->
-                    Telegram alert + suspend attempts until the device power-cycles
-  4/5 errors     -> retry next tick; 3 in a row -> Telegram alert.
-                    rc=5 (partial capture) alerts immediately — possible jam.
-  anything else  -> logged as error; ping check decides offline transition.
+  Ambient polling was REMOVED at the user's request: the periodic empty-check
+  attempts made the device beep every ~2 minutes, and the button is preferred.
+  Session close paths: finish / idle timeout / scanner offline / service stop /
+  orphan at startup (crash recovery).
+    `--once` performs a single scan attempt (troubleshooting).
 
 Safety: single-flight flock (one instance ever); attempts strictly sequential.
-        Manual scan requests are executed by THIS process only — never run a
-        pull-scan by hand while scan-watch might be mid-attempt (busy races).
+        Manual scan requests are executed by THIS process only — never run
+        brother-pull-scan by hand while scan-watch might be mid-attempt
+        (busy races).
 Config:  ~/.config/butler/scanwatch.json  (written with defaults on first run)
 Log:     ~/lan-plan/scan-watch.log   State: ~/lan-plan/scan-watch.state.json
 """
@@ -60,22 +42,14 @@ DEFAULTS = {
     "scan_out": os.path.join(HOME, "scans/direct"),
     "duplex": True,
     "mode": "color",
-    "ping_interval": 90,        # s, OFFLINE mode (ICMP only)
-    "scan_interval": 120,       # s, ONLINE mode (also the settle window)
-    "idle_stretch_after": 10,   # consecutive empties before relaxing cadence
-    "idle_interval": 300,       # s, relaxed cadence once idle
-    "busy_backoff": 600,        # s after a busy reply
-    "busy_alert_limit": 3,      # consecutive busy -> alert + suspend
-    "error_alert_limit": 3,     # consecutive errors -> alert
-    "capture_cooldown": 60,     # s after a capture
-    "attempt_timeout": 1000,    # s hard cap per attempt (script's own: 900)
+    "ping_interval": 90,           # s, ICMP online/offline watch
+    "attempt_timeout": 1000,       # s hard cap per attempt (script's own: 900)
     "request_file": os.path.join(HOME, "lan-plan/scan-request.json"),
     "sessions_dir": os.path.join(HOME, "scans/sessions"),
     "request_check_interval": 2,   # s, request-file poll cadence while waiting
     "session_idle_close": 900,     # s, auto-close an idle open session
     "log_file": os.path.join(HOME, "lan-plan/scan-watch.log"),
     "state_file": os.path.join(HOME, "lan-plan/scan-watch.state.json"),
-    "telegram_alerts": True,
 }
 STOP = False
 
@@ -155,20 +129,6 @@ def ping_ok(host):
         return False
 
 
-def send_alert(cfg, text):
-    ok = False
-    if cfg.get("telegram_alerts"):
-        try:
-            sys.path.insert(0, os.path.join(HOME, "BUTLER"))
-            from butler.notify import send_telegram
-            ok = bool(send_telegram(text))
-        except Exception:
-            ok = False
-    log(cfg, ("ALERT sent: " if ok else "ALERT (telegram unavailable): ") + text,
-        level="ALERT")
-    return ok
-
-
 def read_request(cfg):
     """Consume a pending UI request (board button), if any. Returns dict or None."""
     p = cfg["request_file"]
@@ -239,7 +199,7 @@ def run_sheet_count(runner):
 
 
 # --------------------------------------------------------------------------- #
-# manual sessions
+# sessions
 # --------------------------------------------------------------------------- #
 
 def new_session():
@@ -295,15 +255,13 @@ def last_session_state(sc):
             "closed_reason": sc.get("closed_reason")}
 
 
-def handle_request(cfg, req, session, online, suspended):
+def handle_request(cfg, req, session, online):
     """Execute a board request. Returns (session, result_dict, closed_session)."""
     closed = None
     act = (req or {}).get("action")
     res = {"id": (req or {}).get("id"), "action": act, "ts": time.time()}
     if act == "scan":
-        if suspended:
-            res.update(rc=None, note="scanner suspended (power-cycle needed)")
-        elif not online:
+        if not online:
             res.update(rc=None, note="scanner offline")
         else:
             rc, dur, runner, tail = attempt(cfg)
@@ -328,7 +286,10 @@ def handle_request(cfg, req, session, online, suspended):
                 res.update(note="scanner busy — try again")
                 log(cfg, "MANUAL scan: scanner busy")
             else:
-                res.update(note=tail or f"rc={rc}")
+                note = tail or f"rc={rc}"
+                if rc == 5:
+                    note = "partial capture — possible jam, check the feeder | " + note
+                res.update(note=note)
                 log(cfg, f"MANUAL scan: rc={rc} {tail}")
     elif act == "finish":
         if session is not None:
@@ -346,9 +307,9 @@ def handle_request(cfg, req, session, online, suspended):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="ADS-1000W auto-scan watcher (BUTLER)")
+    ap = argparse.ArgumentParser(description="ADS-1000W on-demand scan watcher (BUTLER)")
     ap.add_argument("--config", default=os.path.join(HOME, ".config/butler/scanwatch.json"))
-    ap.add_argument("--once", action="store_true", help="single cycle then exit (testing)")
+    ap.add_argument("--once", action="store_true", help="single scan attempt then exit (testing)")
     args = ap.parse_args()
     cfg = load_cfg(args.config)
 
@@ -375,8 +336,7 @@ def main():
         return
 
     log(cfg, f"scan-watch starting (pid {os.getpid()}; host={cfg['host']}; "
-             f"ping={cfg['ping_interval']}s; scan={cfg['scan_interval']}s; "
-             f"out={cfg['scan_out']})")
+             f"ping={cfg['ping_interval']}s; request-driven; out={cfg['scan_out']})")
 
     # crash recovery: a session left open by a previous run is closed now
     session = None
@@ -395,22 +355,9 @@ def main():
         write_state(cfg, mode="watching", session=None)
 
     online = False
-    suspended = False
-    busy_streak = err_streak = empty_streak = 0
-    partial_alerted = False
     captures = 0
     pending = None
-    next_attempt_at = time.time()
     next_ping_at = time.time() + cfg["ping_interval"]
-
-    def state_session_and_mode():
-        if suspended:
-            m = "suspended"
-        elif online:
-            m = "online"
-        else:
-            m = "offline"
-        return m
 
     while not STOP:
         # ---- 1) handle a pending request (from a button or this loop) -------
@@ -418,129 +365,48 @@ def main():
             pending = read_request(cfg)
         if pending is not None:
             req, pending = pending, None
-            session, res, closed = handle_request(cfg, req, session, online, suspended)
+            session, res, closed = handle_request(cfg, req, session, online)
             if res.get("action") == "scan" and res.get("rc") == 0:
                 captures += 1
             kwargs = {}
-            if session is None:
-                # nothing open: let ambient resume gently after a manual action
-                next_attempt_at = time.time() + cfg["capture_cooldown"]
-                if closed is not None:
-                    kwargs["last_session"] = last_session_state(closed)
-            write_state(cfg, mode=state_session_and_mode(),
+            if closed is not None:
+                kwargs["last_session"] = last_session_state(closed)
+            write_state(cfg, mode=("online" if online else "offline"),
                         session=session_state(session), last_request=res,
                         captures=captures, **kwargs)
             continue
 
-        # ---- 2) offline / suspended ----------------------------------------
+        # ---- 2) offline: ICMP watch only ------------------------------------
         if not online:
-            if suspended:
-                if not ping_ok(cfg["host"]):
-                    suspended = False
-                    busy_streak = 0
-                    log(cfg, "device offline while suspended — resume normal watch")
-                    write_state(cfg, mode="offline")
-                else:
-                    pending = wait_check(cfg, cfg["ping_interval"])
-                    continue
-            if not ping_ok(cfg["host"]):
+            if ping_ok(cfg["host"]):
+                online = True
+                log(cfg, "scanner ONLINE — ICMP watch only; scans happen on request")
+                write_state(cfg, mode="online")
+            else:
                 pending = wait_check(cfg, cfg["ping_interval"])
-                continue
-            online = True
-            suspended = False
-            write_state(cfg, mode="online")
-            log(cfg, f"scanner ONLINE — first scan attempt in {cfg['scan_interval']}s")
-            pending = wait_check(cfg, cfg["scan_interval"])
-            if STOP:
-                break
-            if pending is not None:
-                continue   # a request came in — handled at the top (user vouches)
+            continue
+
+        # ---- 3) online: liveness ping + request wait ------------------------
+        if time.time() >= next_ping_at:
+            next_ping_at = time.time() + cfg["ping_interval"]
             if not ping_ok(cfg["host"]):
                 online = False
-                log(cfg, "scanner went offline during the settle wait — back to watch")
-                write_state(cfg, mode="offline")
-                continue
-
-        # ---- 3) open session: ambient paused, watch for requests/timeout ----
-        if session is not None:
-            if time.time() - session["last_activity"] > cfg["session_idle_close"]:
-                closed = close_session(cfg, session, "idle timeout")
-                session = None
-                write_state(cfg, session=None, last_session=last_session_state(closed))
-                next_attempt_at = time.time() + cfg["capture_cooldown"]
-                continue
-            if time.time() >= next_ping_at:
-                next_ping_at = time.time() + cfg["ping_interval"]
-                if not ping_ok(cfg["host"]):
+                if session is not None:
                     closed = close_session(cfg, session, "scanner offline")
                     session = None
-                    online = False
-                    busy_streak = err_streak = empty_streak = 0
                     write_state(cfg, mode="offline", session=None,
                                 last_session=last_session_state(closed))
-                    log(cfg, "scanner went offline — pausing attempts")
-                    continue
-            pending = wait_check(cfg, cfg["request_check_interval"])
+                    log(cfg, "scanner went offline — session closed")
+                else:
+                    write_state(cfg, mode="offline")
+                    log(cfg, "scanner went offline — ICMP watch continues")
+                continue
+        if session is not None and time.time() - session["last_activity"] > cfg["session_idle_close"]:
+            closed = close_session(cfg, session, "idle timeout")
+            session = None
+            write_state(cfg, session=None, last_session=last_session_state(closed))
             continue
-
-        # ---- 4) ambient attempts (user-paced mode off) ----------------------
-        if time.time() < next_attempt_at:
-            pending = wait_check(cfg, min(next_attempt_at - time.time(),
-                                          cfg["request_check_interval"]))
-            continue
-
-        rc, dur, runner, tail = attempt(cfg)
-        if rc == 0:
-            captures += 1
-            empty_streak = busy_streak = err_streak = 0
-            partial_alerted = False
-            log(cfg, f"CAPTURED rc=0 dur={dur:.1f}s run={runner} (session captures: {captures})")
-            write_state(cfg, mode="online", last_rc=rc, last_dur=round(dur, 1),
-                        last_run=runner, captures=captures)
-            next_attempt_at = time.time() + cfg["capture_cooldown"]
-        elif rc == 3:
-            empty_streak += 1
-            busy_streak = err_streak = 0
-            iv = cfg["idle_interval"] if empty_streak >= cfg["idle_stretch_after"] else cfg["scan_interval"]
-            log(cfg, f"empty rc=3 dur={dur:.1f}s (empty streak {empty_streak}; next in {iv}s)")
-            write_state(cfg, mode="online", last_rc=rc, last_dur=round(dur, 1),
-                        empty_streak=empty_streak)
-            next_attempt_at = time.time() + iv
-        elif rc == 2:
-            busy_streak += 1
-            err_streak = 0
-            log(cfg, f"BUSY rc=2 dur={dur:.1f}s (busy streak {busy_streak}) — backing off {cfg['busy_backoff']}s")
-            if busy_streak >= cfg["busy_alert_limit"]:
-                send_alert(cfg, f"BUTLER scan-watch: scanner wedged (busy ×{busy_streak}). "
-                                f"If scans should work, power-cycle the ADS-1000W — I'll resume "
-                                f"automatically when it comes back.")
-                online = False
-                suspended = True
-                write_state(cfg, mode="suspended", busy_streak=busy_streak)
-                pending = wait_check(cfg, 60)
-            else:
-                write_state(cfg, mode="online", last_rc=rc, busy_streak=busy_streak)
-                next_attempt_at = time.time() + cfg["busy_backoff"]
-        else:
-            err_streak += 1
-            log(cfg, f"ERROR rc={rc} dur={dur:.1f}s (error streak {err_streak}) {tail}")
-            if rc == 5 and not partial_alerted:
-                send_alert(cfg, f"BUTLER scan-watch: partial capture (rc=5) — check the "
-                                f"scanner for a jam. run={runner}")
-                partial_alerted = True
-            if err_streak >= cfg["error_alert_limit"]:
-                send_alert(cfg, f"BUTLER scan-watch: {err_streak} consecutive scan errors "
-                                f"(last rc={rc}). Scanner needs a look.")
-                err_streak = 0
-            write_state(cfg, mode="online", last_rc=rc, err_streak=err_streak)
-            if not ping_ok(cfg["host"]):
-                online = False
-                empty_streak = busy_streak = 0
-                write_state(cfg, mode="offline")
-                log(cfg, "scanner went offline — pausing attempts")
-                pending = wait_check(cfg, cfg["ping_interval"])
-            else:
-                next_attempt_at = time.time() + cfg["scan_interval"]
+        pending = wait_check(cfg, cfg["request_check_interval"])
 
     if session is not None:
         closed = close_session(cfg, session, "scan-watch stopping")

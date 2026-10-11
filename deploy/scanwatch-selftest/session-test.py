@@ -6,7 +6,7 @@ Runs WITHOUT the scanner (fake pull script + pingable localhost); no hardware.
 
 Covers:
   s1  request -> capture -> session opens -> second capture extends -> finish closes
-  s2  ambient attempts paused while a session is open; resume after finish
+  s2  no automatic scans — ICMP watch only (no attempts without requests)
   s3  orphan recovery: kill -9 with an open session -> restart closes it
   s4  idle timeout closes an abandoned session
   s5  scan request while the scanner is offline -> polite "offline" result
@@ -62,14 +62,12 @@ class SW:
         self.cfg = {
             "host": "127.0.0.1", "pull_script": str(FAKE),
             "scan_out": str(self.tmp / "scans/direct"),
-            "ping_interval": 2, "scan_interval": 300, "idle_stretch_after": 99,
-            "idle_interval": 300, "busy_backoff": 5, "busy_alert_limit": 3,
-            "error_alert_limit": 3, "capture_cooldown": 2, "attempt_timeout": 30,
+            "ping_interval": 2, "attempt_timeout": 30,
             "log_file": str(self.tmp / "log.txt"), "state_file": str(self.tmp / "state.json"),
             "request_file": str(self.tmp / "scan-request.json"),
             "sessions_dir": str(self.tmp / "scans/sessions"),
             "request_check_interval": 1, "session_idle_close": 60,
-            "telegram_alerts": False, "duplex": True, "mode": "color",
+            "duplex": True, "mode": "color",
         }
         self.cfg.update(over)
         self.cfg_path = self.tmp / "cfg.json"
@@ -128,7 +126,7 @@ class SW:
 
 def s1_session_flow():
     print("--- s1: capture / extend / finish ---")
-    sw = SW(tempfile.mkdtemp(prefix="sw1_"), ["capture", "capture"], capture_cooldown=300)
+    sw = SW(tempfile.mkdtemp(prefix="sw1_"), ["capture", "capture"])
     sw.start()
     check("s1a scanner online", sw.wait_for(lambda: sw.state().get("mode") == "online"))
     sw.request("scan")
@@ -152,35 +150,32 @@ def s1_session_flow():
     sw.stop()
 
 
-def s2_ambient_pause_resume():
-    print("--- s2: ambient paused during session, resumes after ---")
-    sw = SW(tempfile.mkdtemp(prefix="sw2_"), ["capture", "empty", "empty", "empty",
-                                              "empty", "empty", "empty"],
-           scan_interval=3, session_idle_close=60)
+def s2_no_ambient():
+    print("--- s2: no automatic scans — ICMP watch only ---")
+    sw = SW(tempfile.mkdtemp(prefix="sw2_"), ["capture", "capture", "empty", "empty"])
     sw.start()
-    check("s2a scanner online", sw.wait_for(lambda: sw.state().get("mode") == "online"))
+    check("s2a scanner online (ICMP)", sw.wait_for(lambda: sw.state().get("mode") == "online"))
+    time.sleep(8)
+    check("s2b no attempts while idle (no requests)", sw.attempts() == 0, f"n={sw.attempts()}")
     sw.request("scan")
-    check("s2b session open", sw.wait_for(lambda: bool(sw.sessions()) and sw.sessions()[0].get("sheets") == 2))
-    n1 = sw.attempts()
-    time.sleep(8)   # ambient would fire ~2× here if not paused
-    check("s2c no attempts while session open", sw.attempts() == n1, f"{n1} -> {sw.attempts()}")
+    check("s2c request works", sw.wait_for(lambda: bool(sw.sessions()) and sw.sessions()[0].get("sheets") == 2))
     sw.request("finish")
     check("s2d finish closes", sw.wait_for(lambda: bool(sw.sessions()) and sw.sessions()[0].get("closed")))
-    check("s2e ambient resumes after close", sw.wait_for(lambda: sw.attempts() > n1, timeout=15),
-          f"n={sw.attempts()}")
+    time.sleep(5)
+    check("s2e still no spontaneous attempts after close", sw.attempts() == 1, f"n={sw.attempts()}")
     sw.stop()
 
 
 def s3_orphan_recovery():
     print("--- s3: kill -9 with open session -> restart closes orphan ---")
     tmp = tempfile.mkdtemp(prefix="sw3_")
-    sw = SW(tmp, ["capture"], capture_cooldown=300)
+    sw = SW(tmp, ["capture"])
     sw.start()
     check("s3a online", sw.wait_for(lambda: sw.state().get("mode") == "online"))
     sw.request("scan")
     check("s3b session open", sw.wait_for(lambda: bool(sw.sessions()) and sw.sessions()[0].get("sheets") == 2))
     sw.stop(sig=signal.SIGKILL)
-    sw2 = SW(tmp, ["empty", "empty", "empty"], capture_cooldown=300)
+    sw2 = SW(tmp, ["empty", "empty", "empty"])
     sw2.start()
     ok = sw2.wait_for(lambda: bool(sw2.sessions()) and sw2.sessions()[0].get("closed_reason") == "restart (orphan)")
     check("s3c orphan closed on restart", ok, str(sw2.sessions()))
@@ -348,7 +343,7 @@ def phase_c_web(tmp):
 def main():
     t0 = time.time()
     s1_session_flow()
-    s2_ambient_pause_resume()
+    s2_no_ambient()
     s3_orphan_recovery()
     s4_idle_timeout()
     s5_offline_request()

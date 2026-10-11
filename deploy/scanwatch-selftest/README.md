@@ -1,36 +1,21 @@
-# scan-watch selftest
+# scanwatch selftest
 
-Two layers, both run WITHOUT the physical scanner (fake pull script + pingable
-localhost).
-
-## 1. Automated session/button regression (primary)
+Automated regression for the on-demand (button-driven) scan flow — runs WITHOUT
+the physical scanner (plan-driven fake pull script + pingable localhost).
 
     python3 deploy/scanwatch-selftest/session-test.py
 
-Covers (38 checks): request → capture → session open/extend → finish; ambient
-attempts paused while a session is open and resumed after; kill -9 orphan
-recovery on restart; idle timeout; offline request note; intake registration
-(closed session = one batch + merged PDF, member runs skipped, open session
-held, stale-open registered, idempotent re-ingest); board API (scanner status,
-scan request file, offline refusal, trash: archive + mark + hide + banner).
+Covers (38 checks): request → capture → session open/extend → finish; **no
+spontaneous attempts** (ICMP watch only — ambient scanning was removed
+2026-10-12 at the user's request); kill -9 orphan recovery on restart; idle
+timeout; offline request note; intake registration (closed session = one batch
++ merged PDF, member runs skipped, open session held, stale-open registered,
+idempotent re-ingest); board API (scanner status, scan request file, offline
+refusal, trash: archive + mark + hide + banner).
 
-Last run 2026-10-11: **ALL PASS** (38 checks, 33 s).
+Last run 2026-10-12: **ALL PASS** (38 checks, ~36 s).
 
-## 2. Manual state-machine run (scan-watch main loop)
-
-    rm -rf /tmp/swtest && cp -r deploy/scanwatch-selftest /tmp/swtest
-    timeout 58 python3 deploy/scan-watch.py --config /tmp/swtest/cfg.json
-    cat /tmp/swtest/log.txt
-
-Expect (cfg durations: scan_interval=8 s, cooldown=3 s, busy_backoff=10 s):
-  1. `scanner ONLINE — first scan attempt in 8s` — settle window honoured
-  2. first attempt at +8 s → `empty rc=3` → `CAPTURED rc=0` → `BUSY ×3` →
-     wedge ALERT + suspend
-  3. clean `stopping (signal)` when the timeout sends SIGTERM.
-
-Last run 2026-10-11: PASS (all branches).
-
-## fake-scan.py — plan-driven fake scanner
+## fake-scan.py — plan-driven fake scanner (used by the tests)
 
 Env:
   `SWTEST_PLAN`  JSON list of steps: `"empty" | "capture" | "busy" | "error"`
