@@ -23,6 +23,12 @@ scanner -> intake watcher -> registry (SQLite) -> analyzer (vision LLM -> cited 
 | `butler-intake`    | watches scan dirs, registers batches      | —    |
 | `butler-analyze`   | vision analysis -> cited facts            | —    |
 | `butler-board`     | Kanban board (browse/review)              | 9500 |
+| `scan-watch`       | ADS-1000W: auto-grab + manual scan sessions | —  |
+
+The board's scanner panel drives one-by-one feeding: *Scan sheet* / *Finish batch*
+write a request file that `scan-watch` executes (single device controller); a
+closed session registers as one batch. Each batch can be archived ("trash",
+never deleted) from its sheet view.
 
 ## Quickstart
 

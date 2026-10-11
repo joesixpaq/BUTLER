@@ -49,3 +49,14 @@ table.facts th{color:var(--dim);text-align:left;font-weight:500;border-bottom:1p
 table.facts td{border-bottom:1px solid var(--line);padding:3px 8px 3px 0;vertical-align:top}
 .dim{color:var(--dim)}
 .error{color:#ffb4a8}
+
+/* scanner panel */
+.scanner{display:flex;align-items:center;gap:10px;margin:10px 14px 0;padding:8px 12px;background:var(--panel);border:1px solid var(--line);border-radius:10px;font-size:12.5px}
+.scanner .grow{flex:1}
+.dot{width:10px;height:10px;border-radius:50%;background:#555;display:inline-block;flex:0 0 auto}
+.dot.on{background:#2ecc71}
+.dot.warn{background:#e67e22}
+.dot.off{background:#555}
+.scanner button{cursor:pointer}
+.scanner button:disabled{opacity:.45;cursor:default}
+.banner{margin:10px 14px 0;padding:8px 12px;background:#3a2430;border:1px solid #6b3346;border-radius:10px;color:#ffb4c8;font-size:12.5px}

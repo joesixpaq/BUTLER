@@ -11,6 +11,9 @@
   <h1>Sheet {{ s.sheet_no }} <span class="sub">{{ s.batch_key }}</span></h1>
   <a class="back" href="/">← board</a>
 </header>
+{% if s.batch_status == 'trashed' %}
+<section class="banner">This batch was trashed — its files are archived (not deleted). Images may be unavailable.</section>
+{% endif %}
 <section class="detail">
   <div class="imgs">
     <figure><img src="{{ url_for('img', sid=s.id, side='front') }}" alt="front"><figcaption>front</figcaption></figure>
@@ -20,7 +23,17 @@
   </div>
   <aside>
     <dl>
-      <dt>batch</dt><dd>{{ s.batch_key }}</dd>
+      <dt>batch</dt>
+      <dd>
+        {{ s.batch_key }}
+        {% if s.batch_status == 'trashed' %}<span class="chip warn">trashed</span>
+        {% else %}
+        <form method="post" action="{{ url_for('trash_batch', bid=s.batch_id) }}" style="display:inline"
+              onsubmit="return confirm('Trash the whole batch ({{ s.batch_key }})? Files are archived, not deleted.');">
+          <button type="submit" title="archive this batch and remove it from the board">trash</button>
+        </form>
+        {% endif %}
+      </dd>
       <dt>scanned</dt><dd>{{ s.batch_ts }}</dd>
       {% if s.batch_note %}<dt>note</dt><dd>{{ s.batch_note }}</dd>{% endif %}
       <dt>status</dt>

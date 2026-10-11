@@ -11,6 +11,18 @@
   <h1>BUTLER <span class="sub">mail board</span></h1>
   <div class="meta">{{ total }} sheet(s) · {{ batches }} batch(es) · drag cards between columns</div>
 </header>
+
+<section class="scanner">
+  <span class="dot off" id="sc-dot"></span>
+  <span id="sc-mode">scanner: …</span>
+  <span id="sc-session" class="dim"></span>
+  <span class="grow"></span>
+  <span id="sc-last" class="dim"></span>
+  <button id="sc-scan" disabled title="scan the sheet(s) currently in the feeder — starts or continues a manual feeding session">Scan sheet</button>
+  <button id="sc-finish" disabled title="close the manual session — it registers as one batch">Finish batch</button>
+  <button id="sc-reload" onclick="location.reload()" title="reload board">⟳</button>
+</section>
+
 <main class="board">
   {% for st in statuses %}
   <section class="col" data-status="{{ st }}">
