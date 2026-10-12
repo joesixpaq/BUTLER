@@ -7,10 +7,11 @@ No hardware; temp DB + temp dirs.
 
     cd ~/BUTLER && python3 deploy/batch-selftest/selftest.py
 
-Last run 2026-10-12: **ALL PASS (77 checks)** (layout: 7 status lanes + new-tab
+Last run 2026-10-12: **ALL PASS (83 checks)** (layout: 7 status lanes + new-tab
 hook; trash endpoint: form → 302 board, API → JSON; scans-root + scan-watch
 paths env-isolated — the suite never touches live dirs; live board:
-auto-refresh hook + reading-progress text; analysis gates G1–G10).
+auto-refresh hook + reading-progress text; analysis gates G1–G10; intake race
+guard N1–N6).
 
 Covers:
 - one board card per letter (trashed letters hidden; header letter/scan counts)
@@ -35,5 +36,8 @@ Covers:
 - analysis gates: hold-minutes gate, daily schedule slot, board countdown +
   inbox-lane "analyze now", letter-page "analyze now", manual release lifts
   both gates (batches.released)
+- intake race guard: fresh runs wait out the settle window; open-session
+  member runs are skipped; a premature standalone duplicate is auto-retired
+  when its session registers (registry-only — files stay on disk)
 - scan page: letter-status form (posts to the batch), removal banner + restore,
   old per-sheet status route is gone (404)

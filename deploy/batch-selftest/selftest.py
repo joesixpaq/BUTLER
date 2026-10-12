@@ -11,7 +11,10 @@ restore included) · exclusion respected by the analyzer (pending + sides)
 · letter page contents (scans, removed list, payment, tasks, docs) · scan page
 letter-status + removal banner · old per-sheet status route gone
 · trash endpoint (form-post -> board redirect, API -> JSON, session archives;
-scans-root + scan-watch paths env-isolated so live dirs are never touched).
+scans-root + scan-watch paths env-isolated so live dirs are never touched)
+· live board (auto-refresh hook, delegated interactions, reading-progress text)
+· analysis gates (hold + schedule + analyze-now)
+· intake race guard (settle window, open-session membership, duplicate self-heal).
 """
 import json
 import os
@@ -19,6 +22,7 @@ import pathlib
 import re
 import sys
 import tempfile
+import time
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
@@ -458,6 +462,81 @@ def test_analyze_gates(web):
         set_gates(0, "")
 
 
+def test_intake_race(web):
+    """Intake race guard: settle window + open-session membership + self-heal."""
+    import butler.intake as ii
+    root = TMP / "intake"
+    direct = root / "scans" / "direct"
+    sessions = root / "scans" / "sessions"
+    direct.mkdir(parents=True)
+    sessions.mkdir(parents=True)
+    saved = (list(ii.SCAN_DIRS), ii.SESSIONS_DIR)
+    ii.SCAN_DIRS = [direct, root / "scans" / "incoming"]
+    ii.SESSIONS_DIR = sessions
+
+    def mk_run(name, age=120):
+        d = direct / name
+        (d / "sheets").mkdir(parents=True, exist_ok=True)
+        (d / "sheets" / "sheet_01_front.jpg").write_bytes(b"\xff\xd8\xff\xd9")
+        mf = d / "manifest.json"
+        mf.write_text(json.dumps({"scan_timestamp": name.split("_", 1)[1],
+                                  "sheets": [{"index": 1,
+                                              "front": "sheets/sheet_01_front.jpg",
+                                              "back": ""}],
+                                  "stream_end": "done"}))
+        t = time.time() - age
+        os.utime(mf, (t, t))
+        return d
+
+    def keys_of(new):
+        return {k for k, _ in new}
+
+    try:
+        mk_run("pull_20261012_160001", age=0)
+        new, _ = ii.ingest()
+        check("N1 fresh run waits out the settle window",
+              "direct/pull_20261012_160001" not in keys_of(new))
+        mk_run("pull_20261012_160001", age=120)
+        new, _ = ii.ingest()
+        check("N2 settled run registers",
+              "direct/pull_20261012_160001" in keys_of(new))
+
+        mk_run("pull_20261012_160002", age=120)
+        (sessions / "20261012_160000.json").write_text(json.dumps(
+            {"session_id": "20261012_160000", "started": "2026-10-12T16:00:00",
+             "started_ts": time.time() - 300, "closed": None, "source": "manual",
+             "runs": ["pull_20261012_160002"], "sheets": 1}))
+        new, _ = ii.ingest()
+        check("N3 open session held + member run skipped",
+              "sessions/20261012_160000" not in keys_of(new)
+              and "direct/pull_20261012_160002" not in keys_of(new))
+
+        # simulate the live race: standalone registers BEFORE the session file
+        # lists the run, then the session registers late (2026-10-12 23:38)
+        (sessions / "20261012_160000.json").unlink()
+        new, _ = ii.ingest()
+        check("N4 race sim: standalone registered first",
+              "direct/pull_20261012_160002" in keys_of(new))
+        (sessions / "20261012_160000.json").write_text(json.dumps(
+            {"session_id": "20261012_160000", "started": "2026-10-12T16:00:00",
+             "started_ts": time.time() - 300, "closed": "2026-10-12T16:01:00",
+             "closed_reason": "user", "source": "manual",
+             "runs": ["pull_20261012_160002"], "sheets": 1}))
+        new, _ = ii.ingest()
+        con = db.connect()
+        st = con.execute("SELECT status,note FROM batches WHERE "
+                         "key='direct/pull_20261012_160002'").fetchone()
+        con.close()
+        check("N5 session registers after close",
+              "sessions/20261012_160000" in keys_of(new))
+        check("N6 duplicate auto-retired, files intact",
+              st["status"] == "trashed" and "duplicate" in (st["note"] or "")
+              and (direct / "pull_20261012_160002" / "manifest.json").exists(),
+              f"{st['status']} / {st['note']}")
+    finally:
+        ii.SCAN_DIRS, ii.SESSIONS_DIR = saved
+
+
 def main():
     seed()
     from butler.web import app
@@ -470,6 +549,7 @@ def main():
     test_trash_endpoint(web)
     test_live_board(web)
     test_analyze_gates(web)
+    test_intake_race(web)
     print()
     if FAIL:
         print(f"FAILURES: {FAIL}  (pass {PASS})")

@@ -17,6 +17,17 @@ closed). A session still open is left alone — its runs wait; one open longer
 than STALE_OPEN_HOURS is registered anyway as a safety net (scan-watch also
 closes orphans on restart, so this is belt-and-braces).
 
+Race guard (live bug 2026-10-12 23:38): scan-watch records a run's session
+membership a moment AFTER the run's files land, so intake could see a finished
+member run before the session file listed it and register it standalone
+(observed: a 2-sheet run became its own batch while its session was still
+open; the session batch then registered the same sheets again). Standalone
+registration therefore waits out RUN_GRACE_SECONDS (manifest mtime) and
+re-reads the session files freshly; and if a duplicate standalone batch did
+slip through, registering the session retires it automatically (status
+`trashed`, note "duplicate …", files untouched — they belong to the session
+batch).
+
 P2: no batch-level arrival ping — notifications are per mail, sent by the
 analyzer after reading (spec: "each mail is special").
 """
@@ -32,6 +43,7 @@ SCAN_DIRS = [
 ]
 SESSIONS_DIR = pathlib.Path.home() / "scans" / "sessions"
 STALE_OPEN_HOURS = 12
+RUN_GRACE_SECONDS = 60      # settle window before a standalone run registers
 
 
 def find_runs(dirs=None):
@@ -142,6 +154,20 @@ def _register_session(con, s, note_extra, verbose=False):
             (bid, n, f"{run}/{sh.get('front', '')}", f"{run}/{sh.get('back', '')}",
              json.dumps({k: v for k, v in sh.items() if k not in ("index", "front", "back")})),
         )
+    # Self-heal the membership race: a member run may already have been
+    # registered standalone before the session file listed it — retire that
+    # duplicate (registry-only; its files stay put for THIS session batch).
+    for run in runs:
+        for root in ("direct", "incoming"):
+            dup = con.execute(
+                "SELECT id FROM batches WHERE key=? "
+                "AND COALESCE(status,'')!='trashed'",
+                (f"{root}/{run}",)).fetchone()
+            if dup:
+                con.execute(
+                    "UPDATE batches SET status='trashed', "
+                    "note=COALESCE(note,'')||' · duplicate of sessions/'||?||"
+                    "' (auto-retired)' WHERE id=?", (sid, dup["id"]))
     con.commit()
     _merge_session_pdf(scans_root, runs, sid, verbose=verbose)
     return (f"sessions/{sid}", n)
@@ -185,6 +211,12 @@ def ingest(notify: bool = True, verbose: bool = False):
             mf = run / "manifest.json"
             if not mf.exists():
                 skipped.append(key)
+                continue
+            # settle window + fresh membership re-read (see module docstring)
+            if time.time() - mf.stat().st_mtime < RUN_GRACE_SECONDS:
+                continue
+            _, fresh_members = _load_sessions()
+            if run.name in fresh_members:
                 continue
             try:
                 m = json.loads(mf.read_text())

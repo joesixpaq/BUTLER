@@ -11,7 +11,8 @@ Covers:
   s4  idle timeout closes an abandoned session
   s5  scan request while the scanner is offline -> polite "offline" result
   B   intake: closed session = one batch (+merged PDF), member runs skipped,
-      open session held, stale-open registered, idempotent re-ingest
+      open session held, stale-open registered, idempotent re-ingest,
+      settle window + duplicate self-heal (membership race guard)
   C   board API: scanner status, scan request file, offline refusal, trash
       (archive files + mark batch + hide from board + banner on sheet page)
 """
@@ -224,7 +225,7 @@ def phase_b_intake():
     bintake.SESSIONS_DIR = sessions
     bdb.init()
 
-    def mk_run(name, sheets=1, with_pdf=False):
+    def mk_run(name, sheets=1, with_pdf=False, age=120):
         d = direct / name
         (d / "sheets").mkdir(parents=True)
         sh = []
@@ -235,6 +236,10 @@ def phase_b_intake():
         write_json(d / "manifest.json",
                    {"scan_timestamp": name.split("_", 1)[1], "sheets": sh,
                     "stream_end": "done-marker"})
+        # backdate so runs are past the intake settle window by default
+        # (age=0 simulates a just-finished run)
+        t = time.time() - age
+        os.utime(d / "manifest.json", (t, t))
         if with_pdf:
             import fitz
             doc = fitz.open()
@@ -287,6 +292,39 @@ def phase_b_intake():
     again, _ = bintake.ingest()
     check("B11 idempotent re-ingest", again == [], str(again))
     con.close()
+
+    # membership race guard (live bug 2026-10-12 23:38): the settle window,
+    # the fresh membership re-read, and the duplicate self-heal
+    mk_run("pull_20261012_090400", sheets=1, age=0)
+    new2, _ = bintake.ingest()
+    check("B12 fresh run waits out the settle window",
+          "direct/pull_20261012_090400" not in {k for k, _ in new2})
+    t = time.time() - 120
+    os.utime(direct / "pull_20261012_090400" / "manifest.json", (t, t))
+    new2, _ = bintake.ingest()
+    check("B13 settled run registers",
+          "direct/pull_20261012_090400" in {k for k, _ in new2})
+
+    mk_run("pull_20261012_090500", sheets=1)      # settled, no session yet
+    new2, _ = bintake.ingest()
+    check("B14 race sim: standalone registered first",
+          "direct/pull_20261012_090500" in {k for k, _ in new2})
+    write_json(sessions / "20261012_090060.json",
+               {"session_id": "20261012_090060", "started": "2026-10-12T09:00:55",
+                "started_ts": now - 40, "closed": "2026-10-12T09:01:10",
+                "closed_reason": "user", "source": "manual",
+                "runs": ["pull_20261012_090500"], "sheets": 1})
+    new2, _ = bintake.ingest()
+    con2 = bdb.connect()
+    st = con2.execute("SELECT status,note FROM batches WHERE "
+                      "key='direct/pull_20261012_090500'").fetchone()
+    con2.close()
+    check("B15 session registers; duplicate auto-retired",
+          "sessions/20261012_090060" in {k for k, _ in new2}
+          and st["status"] == "trashed" and "duplicate" in (st["note"] or ""),
+          f"{st['status']} / {st['note']}")
+    check("B16 files untouched (registry-only retire)",
+          (direct / "pull_20261012_090500" / "manifest.json").exists())
     return tmp
 
 
