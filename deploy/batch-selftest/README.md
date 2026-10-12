@@ -7,7 +7,9 @@ No hardware; temp DB + temp dirs.
 
     cd ~/BUTLER && python3 deploy/batch-selftest/selftest.py
 
-Last run 2026-10-12: **ALL PASS (51 checks)** (includes layout: 7 status lanes + new-tab hook).
+Last run 2026-10-12: **ALL PASS (63 checks)** (layout: 7 status lanes + new-tab
+hook; trash endpoint: form → 302 board, API → JSON; scans-root + scan-watch
+paths env-isolated — the suite never touches live dirs).
 
 Covers:
 - one board card per letter (trashed letters hidden; header letter/scan counts)
@@ -23,5 +25,8 @@ Covers:
   analyzes as a clean no-op
 - letter page: scans table with thumbs + remove buttons, status form, trash,
   payment block, aggregated tasks (scan column), docs with scan refs
+- trash endpoint: empty form body → 302 to the board (was: raw JSON); API
+  posts → JSON `moved` list; session-keyed letters archive runs + merged pdf +
+  session json; trashed letter drops off the board
 - scan page: letter-status form (posts to the batch), removal banner + restore,
   old per-sheet status route is gone (404)

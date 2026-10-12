@@ -30,7 +30,8 @@ Scans happen only on request — no ambient polling. The board's scanner panel
 drives one-by-one feeding: *Scan sheet* / *Finish batch* write a request file
 that `scan-watch` executes (single device controller); a closed session
 registers as one batch. Each batch can be archived ("trash", never deleted)
-from its sheet view.
+from its letter or scan view — the browser button returns to the board; API
+posts (no form content type) get JSON with the archived paths.
 
 ## Board (letters)
 

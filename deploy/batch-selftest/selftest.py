@@ -9,9 +9,12 @@ Covers: one board card per letter (batch) · derived letter status
 (drag endpoint + DB sync) · per-scan removal (whole scan and single sides,
 restore included) · exclusion respected by the analyzer (pending + sides)
 · letter page contents (scans, removed list, payment, tasks, docs) · scan page
-letter-status + removal banner · old per-sheet status route gone.
+letter-status + removal banner · old per-sheet status route gone
+· trash endpoint (form-post -> board redirect, API -> JSON, session archives;
+scans-root + scan-watch paths env-isolated so live dirs are never touched).
 """
 import json
+import os
 import pathlib
 import re
 import sys
@@ -21,6 +24,13 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
 TMP = pathlib.Path(tempfile.mkdtemp(prefix="butler-batch-"))
+
+# Isolate every path the web app could write to (trash archives, scan-watch
+# state/sessions): the suite must never touch the live ~/scans or ~/lan-plan.
+os.environ["BUTLER_SCANS_DIR"] = str(TMP / "scans")
+os.environ["BUTLER_SW_SESSIONS"] = str(TMP / "scans" / "sessions")
+os.environ["BUTLER_SW_STATE"] = str(TMP / "sw-state.json")
+os.environ["BUTLER_SW_REQUEST"] = str(TMP / "sw-request.json")
 
 from butler import db  # noqa: E402
 
@@ -298,6 +308,72 @@ def test_letter_page(web):
     eq("E14 old per-sheet status route gone", web.post("/api/sheet/1/status", json={"status": "filed"}).status_code, 404)
 
 
+def test_trash_endpoint(web):
+    """Trash contract (form -> board, API -> JSON) + letter-page form returns."""
+    # session-keyed letter: member runs + merged pdf + session json
+    b4 = TMP / "b4"
+    make_run(b4, ["sheet_01_front.jpg"])
+    for run in ("pull_20261012_130001", "pull_20261012_130002"):
+        (b4 / run).mkdir(parents=True, exist_ok=True)
+    (b4 / "scan_session_20261012_130000.pdf").write_bytes(b"%PDF-fake")
+    sess_dir = TMP / "scans" / "sessions"
+    sess_dir.mkdir(parents=True, exist_ok=True)
+    (sess_dir / "20261012_130000.json").write_text(json.dumps(
+        {"session": "20261012_130000",
+         "runs": ["pull_20261012_130001", "pull_20261012_130002"]}))
+    con = db.connect()
+    con.execute("INSERT INTO batches(id,key,ts,source,folder,status,created_at) "
+                "VALUES (4,'sessions/20261012_130000','20261012_130000','scanner',?,"
+                "'registered',0)", (str(b4),))
+    con.execute("INSERT INTO sheets(id,batch_id,sheet_no,front,back,status) "
+                "VALUES (6,4,1,'sheets/sheet_01_front.jpg',NULL,'review')")
+    con.commit()
+    con.close()
+
+    html = web.get("/").get_data(as_text=True)
+    check("T1 active session letter on the board", 'data-batch="4"' in html)
+
+    # the browser trash button: empty body + form content type -> back to the board
+    r = web.post("/api/batch/4/trash", data="",
+                 content_type="application/x-www-form-urlencoded")
+    eq("T2 trash form post -> 302", r.status_code, 302)
+    eq("T3 redirect target is the board", r.headers.get("Location"), "/")
+    con = db.connect()
+    st = con.execute("SELECT status FROM batches WHERE id=4").fetchone()["status"]
+    con.close()
+    eq("T4 letter marked trashed", st, "trashed")
+    names = sorted(p.name for p in (TMP / "scans" / "archive").iterdir())
+    eq("T5 runs + merged pdf + session json archived", names,
+       ["20261012_130000.json", "pull_20261012_130001", "pull_20261012_130002",
+        "scan_session_20261012_130000.pdf"])
+    check("T6 run dirs + pdf gone from the session folder",
+          not (b4 / "pull_20261012_130001").exists()
+          and not (b4 / "pull_20261012_130002").exists()
+          and not (b4 / "scan_session_20261012_130000.pdf").exists())
+    check("T7 session json gone from the sessions dir",
+          not (sess_dir / "20261012_130000.json").exists())
+    html = web.get("/").get_data(as_text=True)
+    check("T8 trashed letter drops off the board", 'data-batch="4"' not in html)
+
+    # API clients (no form content type) still get JSON
+    r = web.post("/api/batch/2/trash")
+    eq("T9 API post -> 200", r.status_code, 200)
+    j = r.get_json() or {}
+    check("T10 JSON ok + moved paths",
+          j.get("ok") is True and isinstance(j.get("moved"), list)
+          and len(j["moved"]) >= 1 and all("archive" in m for m in j["moved"]))
+
+    # mutation forms on the letter page come back to the letter
+    r = web.post("/api/task/1/status", data={"status": "done"},
+                 content_type="application/x-www-form-urlencoded")
+    check("T11 task form -> letter page",
+          "/batch/1" in r.headers.get("Location", ""))
+    r = web.post("/api/payment/1/status", data={"status": "paid"},
+                 content_type="application/x-www-form-urlencoded")
+    check("T12 payment form -> letter page",
+          "/batch/1" in r.headers.get("Location", ""))
+
+
 def main():
     seed()
     from butler.web import app
@@ -307,6 +383,7 @@ def main():
     test_exclude(web)
     test_analyzer_paths(web)
     test_letter_page(web)
+    test_trash_endpoint(web)
     print()
     if FAIL:
         print(f"FAILURES: {FAIL}  (pass {PASS})")

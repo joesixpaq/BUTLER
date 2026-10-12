@@ -31,9 +31,14 @@ db.DB_PATH = TMP / "test.db"
 
 from butler import tasks, qrpay  # noqa: E402
 
-# live artifacts (optional — the real Post CH invoice re-scan of 2026-10-11)
+# live artifacts (optional — the real Post CH invoice re-scan of 2026-10-11;
+# if the run has since been trashed, use its archived copy — same fixture)
 LIVE_RUN = pathlib.Path.home() / "scans/direct/pull_20261011_235058"
 LIVE_IMG = LIVE_RUN / "sheets/sheet_01_front.jpg"
+if not LIVE_IMG.exists():
+    _arch = pathlib.Path.home() / "scans/archive/pull_20261011_235058"
+    if (_arch / "sheets/sheet_01_front.jpg").exists():
+        LIVE_RUN, LIVE_IMG = _arch, _arch / "sheets/sheet_01_front.jpg"
 
 PASS = 0
 FAIL = 0
@@ -88,6 +93,21 @@ def seed():
                     "VALUES (?,?,?,?,'test',0.9)", (sid, di, kind, val))
     con.execute("INSERT INTO facts(sheet_id,doc_idx,kind,value,citation,confidence) "
                 "VALUES (3,0,'deadline','31. Juli 2026','test',0.9)")
+    # payment row in the exact shape qrpay.decode_for_sheet stores (status
+    # 'prepared'), so the UI checks (H4/H6/H7 + H15/H16) never depend on the
+    # optional live fixture; D* re-decodes and upserts on top when it exists.
+    pdata = qrpay.parse_spc(SPC_REAL)
+    pdata["iban_fmt"] = qrpay.fmt_iban(pdata["iban"])
+    pdata["reference_fmt"] = qrpay.fmt_ref(pdata["ref_type"], pdata["reference"])
+    pcheck = qrpay.crosscheck(pdata, [
+        {"kind": "amount_due", "value": "CHF 52.00"},
+        {"kind": "account", "value": "IBAN CH57 0900 0000 3048 7826 8"},
+        {"kind": "reference", "value": "Zahlreferenz 1080491200"},
+    ])
+    con.execute("INSERT INTO payments(sheet_id, ts, payload, data_json, check_json, "
+                "status) VALUES (1, 0, ?, ?, ?, 'prepared')",
+                ("SPC", json.dumps(pdata, ensure_ascii=False),
+                 json.dumps(pcheck, ensure_ascii=False)))
     con.commit()
     con.close()
 

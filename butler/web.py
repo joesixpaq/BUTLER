@@ -422,14 +422,16 @@ def task_status(tid):
         abort(400, description=f"status must be one of {tasks.TASK_STATUSES}")
     con = db.connect()
     try:
-        row = con.execute("SELECT sheet_id FROM tasks WHERE id=?", (tid,)).fetchone()
+        row = con.execute("SELECT s.batch_id FROM tasks t JOIN sheets s "
+                          "ON s.id = t.sheet_id WHERE t.id=?", (tid,)).fetchone()
     finally:
         con.close()
     if not row:
         abort(404)
     tasks.set_task_status(tid, st)
     if request.form:
-        return redirect(url_for("sheet_view", sid=row["sheet_id"]))
+        # mutations return to the letter that owns the task (letter = unit)
+        return redirect(url_for("batch_view", bid=row["batch_id"]))
     return jsonify(ok=True, status=st)
 
 
@@ -440,14 +442,16 @@ def payment_status(pid):
         abort(400, description="status must be prepared|paid")
     con = db.connect()
     try:
-        row = con.execute("SELECT sheet_id FROM payments WHERE id=?", (pid,)).fetchone()
+        row = con.execute("SELECT s.batch_id FROM payments p JOIN sheets s "
+                          "ON s.id = p.sheet_id WHERE p.id=?", (pid,)).fetchone()
     finally:
         con.close()
     if not row:
         abort(404)
     qrpay.set_payment_status(pid, st)
     if request.form:
-        return redirect(url_for("sheet_view", sid=row["sheet_id"]))
+        # mutations return to the letter that owns the payment (letter = unit)
+        return redirect(url_for("batch_view", bid=row["batch_id"]))
     return jsonify(ok=True, status=st)
 
 
@@ -548,7 +552,11 @@ def trash_batch(bid):
         con.commit()
     finally:
         con.close()
-    if request.form:
+    # Browser trash buttons post an EMPTY form body — request.form is then an
+    # empty dict (falsy!). Branch on the content type instead: form posts (the
+    # buttons) land back on the board; API/fetch clients still get JSON.
+    if request.mimetype in ("application/x-www-form-urlencoded",
+                            "multipart/form-data"):
         return redirect(url_for("board"))
     return jsonify(ok=True, moved=moved)
 

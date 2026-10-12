@@ -16,9 +16,11 @@ Covers:
   fields omitted, IBAN/QRR/SCOR formatting
 - **C** cross-check vs analysis facts: amount, account-tail (QR-IBAN vs printed
   IBAN note), reference; mismatch + not-comparable cases
-- **D** REAL decode of the live Post CH payment slip (`~/scans/direct/
-  pull_20261011_235058`; skipped gracefully if absent) + idempotent upsert that
-  keeps a `paid` status
+- **D** REAL decode of the Post CH payment slip (`~/scans/direct/
+  pull_20261011_235058`, or its `~/scans/archive/` copy once trashed; skipped
+  gracefully if absent) + idempotent upsert that keeps a `paid` status.
+  A payment row is also seeded synthetically, so the UI checks (H4/H6/H7,
+  H15/H16, F18/F19) run with or without the fixture.
 - **E** deadline-fact extraction: create, idempotent re-run, trashed-batch
   guard, long-past backfill pre-silenced
 - **F** reminder engine: offsets 14/7/3/1 on a walk-down, catch-up when slots
