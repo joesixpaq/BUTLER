@@ -7,7 +7,7 @@ No hardware; temp DB + temp dirs.
 
     cd ~/BUTLER && python3 deploy/batch-selftest/selftest.py
 
-Last run 2026-10-12: **ALL PASS (49 checks)**.
+Last run 2026-10-12: **ALL PASS (51 checks)** (includes layout: 7 status lanes + new-tab hook).
 
 Covers:
 - one board card per letter (trashed letters hidden; header letter/scan counts)

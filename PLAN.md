@@ -54,7 +54,8 @@ scanner ─► intake watcher ─► registry (SQLite) ─► assembler (sheets�
 ## 5. Board (browse & work UI)
 
 - **A batch = one letter** (the sheets fed in one scan session). The board shows **one card per letter** — the letter is the unit of every user action.
-- **Columns:** `Inbox → Analyzing → Review → Action → Waiting → Filed` (+ `Noise`). A letter's column is the user's move when dragged; otherwise derived from its scans (all fresh → inbox; being read → analyzing, with `analyzing n/m` progress; all done → review; all noise → noise; scans all removed → noise).
+- **Layout (user decision 2026-10-12 night):** the statuses (`Inbox → Analyzing → Review → Action → Waiting → Filed → Noise`) are stacked **vertically** as rows; letter cards flow **horizontally** inside a lane (~6 per row at 230 px, wrapping — the board never h-scrolls). **Click a card** → the letter opens in a **new tab**; **drag** a card → the whole letter moves to another lane.
+- **A letter's lane** = the user's move when dragged; otherwise derived from its scans (all fresh → inbox; being read → analyzing, with `analyzing n/m` progress; all done → review; all noise → noise; scans all removed → noise).
 - **Letter card:** cover (first kept scan), title, chips (P0–P3, category, review, due, pay, scan count), sender + batch key + analysis progress.
 - **Letter page:** all scans in order (thumbnails → scan view) with **per-scan removal/restore** — a whole scan or a single side (e.g. a blank back); files are never deleted, only hidden from the letter and from future analysis. Plus payment prep, aggregated tasks & reminders, per-scan analyses (cited facts live on the scan view), letter-wide status select and trash.
 - **Scan view** (zoom): one sheet's front/back images, cited facts, re-analyze. Status is letter-wide (the select moves the whole letter).

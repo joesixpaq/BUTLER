@@ -9,7 +9,7 @@
 <body>
 <header>
   <h1>BUTLER <span class="sub">mail board — one card per letter</span></h1>
-  <div class="meta">{{ letters }} letter(s) · {{ scans }} scan(s){% if tasks_open %} · {{ tasks_open }} open task(s){% if tasks_next %} — next due {{ tasks_next }}{% endif %}{% endif %} · drag a letter between columns</div>
+  <div class="meta">{{ letters }} letter(s) · {{ scans }} scan(s){% if tasks_open %} · {{ tasks_open }} open task(s){% if tasks_next %} — next due {{ tasks_next }}{% endif %}{% endif %} · drag a letter into another status · click opens it in a new tab</div>
 </header>
 
 <section class="scanner">
@@ -25,16 +25,14 @@
 
 <main class="board">
   {% for st in statuses %}
-  <section class="col" data-status="{{ st }}">
+  <section class="lane" data-status="{{ st }}">
     <h2>{{ st }} <span class="count">{{ cols[st]|length }}</span></h2>
     <div class="cards">
       {% for c in cols[st] %}
       {% set b = c.b %}
-      <article class="card" draggable="true" data-batch="{{ b.id }}">
-        <a href="{{ url_for('batch_view', bid=b.id) }}">
-          {% if c.cover %}<img src="{{ url_for('img', sid=c.cover.sid, side=c.cover.side) }}" alt="letter cover" loading="lazy">
-          {% else %}<div class="nocover">no scans left</div>{% endif %}
-        </a>
+      <article class="card" draggable="true" data-batch="{{ b.id }}" data-url="{{ url_for('batch_view', bid=b.id) }}" title="click: open in a new tab · drag: move the letter">
+        {% if c.cover %}<img src="{{ url_for('img', sid=c.cover.sid, side=c.cover.side) }}" alt="letter cover" loading="lazy">
+        {% else %}<div class="nocover">no scans left</div>{% endif %}
         <div class="card-body">
           {% if c.prim %}
           <div class="title">{{ c.prim.title }}</div>

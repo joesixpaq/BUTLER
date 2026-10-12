@@ -1,20 +1,36 @@
-// BUTLER board — drag a LETTER card to a column to move the whole letter.
+// BUTLER board — statuses are vertical lanes (top to bottom); letter cards flow
+// horizontally inside a lane (wrap, never h-scroll).
+// Interaction: CLICK a card -> the letter opens in a new tab (the board tab
+// stays put). DRAG a card -> the whole letter moves to another status lane.
+let justDragged = false;
+
 document.querySelectorAll('.card').forEach(card => {
   card.addEventListener('dragstart', e => {
     e.dataTransfer.setData('text/plain', card.dataset.batch);
     card.classList.add('dragging');
+    justDragged = false;
   });
-  card.addEventListener('dragend', () => card.classList.remove('dragging'));
+  card.addEventListener('dragend', () => {
+    card.classList.remove('dragging');
+    justDragged = true;                      // suppress the click that follows a drag
+    setTimeout(() => { justDragged = false; }, 250);
+  });
+  card.addEventListener('click', e => {
+    if (justDragged) { e.preventDefault(); return; }
+    const url = card.dataset.url;
+    if (url) window.open(url, '_blank', 'noopener');
+  });
 });
 
-document.querySelectorAll('.col').forEach(col => {
-  col.addEventListener('dragover', e => { e.preventDefault(); col.classList.add('over'); });
-  col.addEventListener('dragleave', () => col.classList.remove('over'));
-  col.addEventListener('drop', async e => {
+document.querySelectorAll('.lane').forEach(lane => {
+  lane.addEventListener('dragover', e => { e.preventDefault(); lane.classList.add('over'); });
+  lane.addEventListener('dragleave', () => lane.classList.remove('over'));
+  lane.addEventListener('drop', async e => {
     e.preventDefault();
-    col.classList.remove('over');
+    lane.classList.remove('over');
     const id = e.dataTransfer.getData('text/plain');
-    const status = col.dataset.status;
+    const status = lane.dataset.status;
+    if (!id || !status) return;
     try {
       const r = await fetch(`/api/batch/${id}/status`, {
         method: 'POST',

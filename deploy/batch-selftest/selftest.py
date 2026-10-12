@@ -48,7 +48,7 @@ def eq(name, got, want):
 
 
 def col_block(html, st):
-    m = re.search(r'<section class="col" data-status="%s">(.*?)</section>' % st, html, re.S)
+    m = re.search(r'<section class="lane" data-status="%s">(.*?)</section>' % st, html, re.S)
     return m.group(1) if m else ""
 
 
@@ -129,6 +129,9 @@ def test_board(web):
     eq("A2 one card per letter (2 letters, trashed hidden)",
        html.count('data-batch="'), 2)
     check("A3 trashed letter not on board", "pull_b3" not in html)
+    check("A3b seven status lanes rendered", html.count('data-status="') == 7)
+    check("A3c card opens in a new-tab hook", 'data-url="/batch/1"' in html
+          and 'data-url="/batch/2"' in html)
     check("A4 B1 card in analyzing (inbox scan present)",
           'data-batch="1"' in col_block(html, "analyzing"))
     check("A5 B2 card in review", 'data-batch="2"' in col_block(html, "review"))

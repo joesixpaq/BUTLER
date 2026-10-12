@@ -34,8 +34,11 @@ from its sheet view.
 
 ## Board (letters)
 
-A batch = the sheets of **one letter**. The board shows one card per letter;
-drag a card to move the whole letter between columns. The letter page lists
+A batch = the sheets of **one letter**. The board shows one card per letter,
+with the statuses stacked **vertically** (Inbox … Filed/Noise as rows) and the
+cards flowing **horizontally** inside each row (~6 per row, never h-scrolls).
+**Click** a card to open the letter in a new tab; **drag** it to move the whole
+letter between statuses. The letter page lists
 its scans (thumbnails → scan view) and offers **per-scan removal** — a whole
 scan or just one side (e.g. a blank back); removals are restorable and files
 are never deleted. The letter page also carries the payment prep, aggregated
