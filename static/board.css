@@ -60,3 +60,24 @@ table.facts td{border-bottom:1px solid var(--line);padding:3px 8px 3px 0;vertica
 .scanner button{cursor:pointer}
 .scanner button:disabled{opacity:.45;cursor:default}
 .banner{margin:10px 14px 0;padding:8px 12px;background:#3a2430;border:1px solid #6b3346;border-radius:10px;color:#ffb4c8;font-size:12.5px}
+
+/* P3 — payment prep + tasks & reminders */
+.pay,.tasks{margin:12px 16px 0;padding:12px 16px;background:var(--panel);border:1px solid var(--line);border-radius:10px;max-width:948px}
+.pay h3,.tasks h3{margin:0 0 8px;font-size:14px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.paygrid{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap}
+.paygrid table.facts{min-width:320px;flex:1}
+.paybtns{display:flex;gap:8px;flex-direction:column}
+.paybtns button{cursor:pointer}
+pre#pay-text{display:none}
+.chip.ok{background:#1f5e3a;border-color:#1f5e3a;color:#c9f3d8}
+.chip.due{background:#2b3040;border-color:#4a5468}
+.chip.due.due-soon{background:#7a5a1f;border-color:#7a5a1f;color:#ffe9a8}
+.chip.due.due-past{background:#7a2f2f;border-color:#7a2f2f;color:#ffd7d0}
+.chip.pay{background:#1f4f6b;border-color:#1f4f6b;color:#cfeaff}
+.chip.pay.ok{background:#1f5e3a;border-color:#1f5e3a;color:#c9f3d8}
+.tasklist td.rowbtns a{margin-right:8px}
+.rowbtns form{display:inline}
+.rowbtns button{cursor:pointer;padding:2px 8px;margin-right:4px}
+.taskadd{margin-top:10px;display:flex;gap:8px}
+.taskadd input{background:#222634;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:4px 8px}
+input[type=date]{color-scheme:dark}

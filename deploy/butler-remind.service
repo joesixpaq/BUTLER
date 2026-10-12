@@ -1,0 +1,16 @@
+[Unit]
+Description=BUTLER reminders (deadline pings: T-14/7/3/1 + overdue; idempotent)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/hermes/BUTLER
+ExecStart=/usr/bin/python3 -m butler.cli remind-loop --interval 600
+Restart=always
+RestartSec=30
+Nice=10
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

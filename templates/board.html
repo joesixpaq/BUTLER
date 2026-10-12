@@ -9,7 +9,7 @@
 <body>
 <header>
   <h1>BUTLER <span class="sub">mail board</span></h1>
-  <div class="meta">{{ total }} sheet(s) · {{ batches }} batch(es) · drag cards between columns</div>
+  <div class="meta">{{ total }} sheet(s) · {{ batches }} batch(es){% if tasks_open %} · {{ tasks_open }} open task(s){% if tasks_next %} — next due {{ tasks_next }}{% endif %}{% endif %} · drag cards between columns</div>
 </header>
 
 <section class="scanner">
@@ -41,9 +41,11 @@
             <span class="chip pri pri-{{ (d.priority or 'p3')|lower }}">{{ d.priority or 'P3' }}</span>
             <span class="chip">{{ d.category }}</span>
             {% if d.needs_review %}<span class="chip warn">review</span>{% endif %}
+            {% if s.task_due %}<span class="chip due {{ s.due_cls }}">due {{ s.task_due_fmt }}</span>{% endif %}
+            {% if s.pay %}<span class="chip pay {% if s.pay.status == 'paid' %}ok{% endif %}">{% if s.pay.status == 'paid' %}paid{% else %}pay {{ s.pay.amount }}{% endif %}</span>{% endif %}
             {% if s.docs|length > 1 %}<span class="chip">+{{ s.docs|length - 1 }} more</span>{% endif %}
           </div>
-          <div class="factsline">{{ d.sender or '—' }}{% for f in d.facts[:2] %} · {{ f.kind }}: {{ f.value }}{% endfor %}</div>
+          <div class="factsline">{{ d.sender or '—' }}{% for f in (d.facts or [])[:2] %} · {{ f.kind }}: {{ f.value }}{% endfor %}</div>
           {% elif s.status == 'analyzing' %}
           <div class="title">reading…</div>
           <div class="factsline">sheet {{ s.sheet_no }} · {{ s.batch_key.split('/')[-1] }}</div>

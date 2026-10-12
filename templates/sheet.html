@@ -57,6 +57,80 @@
   </aside>
 </section>
 
+{% if payment %}
+<section class="pay">
+  <h3>Payment prep
+    <span class="chip">decoded from the Swiss QR code</span>
+    {% if payment.status == 'paid' %}<span class="chip ok">paid</span>
+    {% else %}<span class="chip warn">unpaid</span>{% endif %}
+    {% if payment.check_ok %}<span class="chip ok">details match the analysis</span>
+    {% else %}<span class="chip warn">check details vs analysis</span>{% endif %}
+  </h3>
+  <div class="paygrid">
+    <table class="facts">
+      <tr><th>creditor</th><td>{{ payment.data.creditor.name or '—' }}{% if payment.data.creditor.street %}, {{ payment.data.creditor.street }} {{ payment.data.creditor.house }}, {{ payment.data.creditor.zip }} {{ payment.data.creditor.town }}{% endif %}</td></tr>
+      <tr><th>QR-IBAN</th><td><code>{{ payment.data.iban_fmt or payment.data.iban }}</code></td></tr>
+      <tr><th>amount</th><td><b>{{ payment.data.amount }} {{ payment.data.currency or '' }}</b></td></tr>
+      {% if payment.data.reference %}
+      <tr><th>reference</th><td><code>{{ payment.data.reference_fmt or payment.data.reference }}</code> <span class="dim">{{ payment.data.ref_type }}</span></td></tr>
+      {% endif %}
+      {% if payment.data.debtor.name %}<tr><th>debtor</th><td>{{ payment.data.debtor.name }}</td></tr>{% endif %}
+      {% if payment.data.message %}<tr><th>message</th><td>{{ payment.data.message }}</td></tr>{% endif %}
+    </table>
+    <div class="paybtns">
+      <button type="button" id="copy-pay">copy payment details</button>
+      {% if payment.status == 'prepared' %}
+      <form method="post" action="{{ url_for('payment_status', pid=payment.id) }}"
+            onsubmit="return confirm('Mark as paid? You pay in your own banking — this only records it here.');">
+        <input type="hidden" name="status" value="paid">
+        <button type="submit">mark as paid</button>
+      </form>
+      {% else %}
+      <form method="post" action="{{ url_for('payment_status', pid=payment.id) }}">
+        <input type="hidden" name="status" value="prepared">
+        <button type="submit">undo paid</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+  <p class="dim">checks — amount: {{ payment.check_marks.amount }} · account: {{ payment.check_marks.iban }} · reference: {{ payment.check_marks.reference }}{% for n in payment.check.notes %} · {{ n }}{% endfor %}</p>
+  <pre id="pay-text" hidden>{{ payment.copy_text }}</pre>
+</section>
+{% endif %}
+
+<section class="tasks">
+  <h3>Tasks &amp; reminders <span class="chip">{{ tasks|length }}</span></h3>
+  {% if tasks %}
+  <table class="facts tasklist">
+    <tr><th>due</th><th>task</th><th>status</th><th>reminders</th><th></th></tr>
+    {% for t in tasks %}
+    <tr>
+      <td>{{ t.due_fmt or '—' }}</td>
+      <td>{{ t.title }} {% if t.source == 'analysis' %}<span class="chip">auto</span>{% endif %}</td>
+      <td>{{ t.status }}</td>
+      <td class="dim">{{ t.reminder_line }}</td>
+      <td class="rowbtns">
+        {% if t.ics %}<a href="{{ url_for('task_ics', tid=t.id) }}" title="calendar file for this deadline">.ics</a>{% endif %}
+        {% if t.status == 'open' %}
+        <form method="post" action="{{ url_for('task_status', tid=t.id) }}"><input type="hidden" name="status" value="done"><button type="submit">done</button></form>
+        <form method="post" action="{{ url_for('task_status', tid=t.id) }}"><input type="hidden" name="status" value="cancelled"><button type="submit">cancel</button></form>
+        {% else %}
+        <form method="post" action="{{ url_for('task_status', tid=t.id) }}"><input type="hidden" name="status" value="open"><button type="submit">reopen</button></form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="dim">no tasks yet — deadlines found by the analyzer create one automatically, or add one below.</p>
+  {% endif %}
+  <form class="taskadd" method="post" action="{{ url_for('add_task', sid=s.id) }}">
+    <input name="title" placeholder="new task" required>
+    <input name="due" type="date" title="optional due date (reminders T-14/7/3/1)">
+    <button type="submit">add</button>
+  </form>
+</section>
+
 {% if analysis and analysis.documents %}
 <section class="analysis">
   {% for d in analysis.documents %}
@@ -90,5 +164,26 @@
 {% else %}
 <section class="analysis"><p class="dim">not analyzed yet — press “re-analyze” or wait for the analyzer loop.</p></section>
 {% endif %}
+<script>
+// Copy the prepared payment block. Clipboard API needs a secure context; the
+// board is plain http on the LAN, so fall back to the legacy textarea trick.
+document.getElementById('copy-pay')?.addEventListener('click', async (ev) => {
+  const btn = ev.target;
+  const text = document.getElementById('pay-text').textContent.trim();
+  let ok = false;
+  try { await navigator.clipboard.writeText(text); ok = true; } catch (e) {}
+  if (!ok) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;opacity:0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { ok = document.execCommand('copy'); } catch (e) {}
+    ta.remove();
+  }
+  btn.textContent = ok ? 'copied' : 'copy failed — select manually';
+  setTimeout(() => { btn.textContent = 'copy payment details'; }, 1600);
+});
+</script>
 </body>
 </html>

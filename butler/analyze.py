@@ -5,6 +5,9 @@ stores a cleaned analysis JSON + flat facts (with citations), moves the sheet
 inbox → analyzing → review (or noise), and sends one Telegram ping per
 document ("each mail is special").
 
+P3 enrichment runs right after a successful analysis (deterministic, guarded):
+Swiss QR payment decode (qrpay) + deadline facts → tasks (tasks).
+
 Provider-agnostic: the model call lives behind llm.analyze_images().
 """
 import json
@@ -225,6 +228,14 @@ def analyze_sheet(sid, notify=True, verbose=False):
                     "VALUES (?,?,?,?,?,?)",
                     (sid, di, f["kind"], f["value"], f["citation"], f["confidence"]))
         con.execute("UPDATE sheets SET status=? WHERE id=?", (new_status, sid))
+        # P3 enrichment — deterministic, never fatal to the analysis itself:
+        # Swiss QR payment decode + deadline facts -> tasks (reminders follow).
+        try:
+            from . import qrpay, tasks
+            qrpay.decode_for_sheet(sid, con=con)
+            tasks.extract_for_sheet(sid, con=con)
+        except Exception as e:
+            print(f"[analyze] enrich sheet {sid}: {type(e).__name__}: {e}")
         con.commit()
     finally:
         con.close()

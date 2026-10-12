@@ -21,10 +21,12 @@ import shutil
 import time
 import uuid
 
+from datetime import date
+
 from flask import (Flask, abort, jsonify, redirect, render_template,
                    request, send_file, url_for)
 
-from . import ROOT, db
+from . import ROOT, db, qrpay, tasks
 
 app = Flask(__name__, template_folder=str(ROOT / "templates"),
             static_folder=str(ROOT / "static"))
@@ -108,6 +110,11 @@ def board():
         n_batches = con.execute(
             "SELECT COUNT(*) FROM batches WHERE COALESCE(status, '') != 'trashed'"
         ).fetchone()[0]
+        tmap = {r["sheet_id"]: r for r in con.execute(
+            "SELECT sheet_id, MIN(CASE WHEN due IS NOT NULL THEN due END) AS due, "
+            "COUNT(*) AS n FROM tasks WHERE status='open' GROUP BY sheet_id")}
+        pmap = {r["sheet_id"]: r for r in con.execute(
+            "SELECT sheet_id, status, data_json FROM payments")}
     finally:
         con.close()
     for r in rows:
@@ -119,11 +126,36 @@ def board():
                 r["docs"] = r["analysis"].get("documents") or []
             except (TypeError, json.JSONDecodeError):
                 pass
+    today = date.today()
+    for r in rows:
+        t = tmap.get(r["id"])
+        r["task_due"] = t["due"] if t else None
+        r["task_open_n"] = t["n"] if t else 0
+        r["task_due_fmt"] = None
+        r["due_cls"] = ""
+        if r["task_due"]:
+            due_d = date.fromisoformat(r["task_due"])
+            dd = (due_d - today).days
+            r["task_due_fmt"] = tasks.fmt_date(due_d)
+            r["due_cls"] = "due-past" if dd < 0 else ("due-soon" if dd <= 7 else "")
+        p = pmap.get(r["id"])
+        r["pay"] = None
+        if p:
+            try:
+                pd = json.loads(p["data_json"] or "{}")
+            except (TypeError, json.JSONDecodeError):
+                pd = {}
+            r["pay"] = {"status": p["status"],
+                        "amount": f"{pd.get('amount') or ''} {pd.get('currency') or 'CHF'}".strip()}
     cols = {st: [] for st in db.SHEET_STATUSES}
     for r in rows:
         cols.setdefault(r["status"], []).append(r)
+    next_due, n_open = tasks.open_summary()
     return render_template("board.html", cols=cols, statuses=db.SHEET_STATUSES,
-                           total=len(rows), batches=n_batches)
+                           total=len(rows), batches=n_batches,
+                           tasks_open=n_open,
+                           tasks_next=tasks.fmt_date(date.fromisoformat(next_due))
+                           if next_due else None)
 
 
 @app.get("/sheet/<int:sid>")
@@ -145,7 +177,9 @@ def sheet_view(sid):
     finally:
         con.close()
     return render_template("sheet.html", s=s, statuses=db.SHEET_STATUSES, pdf=pdf,
-                           analysis=analysis, facts=facts)
+                           analysis=analysis, facts=facts,
+                           tasks=tasks.sheet_task_rows(sid),
+                           payment=qrpay.payment_for_sheet(sid))
 
 
 @app.get("/img/<int:sid>/<side>")
@@ -206,6 +240,87 @@ def requeue(sid):
     if request.form:
         return redirect(url_for("sheet_view", sid=sid))
     return jsonify(ok=True)
+
+
+# --------------------------------------------------------------------------- #
+# P3 — tasks, reminders (.ics), payment prep
+# --------------------------------------------------------------------------- #
+
+@app.post("/api/sheet/<int:sid>/task")
+def add_task(sid):
+    body = request.get_json(silent=True) or {}
+    title = (body.get("title") or request.form.get("title") or "").strip()
+    due_raw = (body.get("due") or request.form.get("due") or "").strip()
+    if not title:
+        abort(400, description="title required")
+    due = None
+    if due_raw:
+        due = tasks.parse_date(due_raw)
+        if not due:
+            abort(400, description=f"unparseable due date: {due_raw!r}")
+    con = db.connect()
+    try:
+        if not con.execute("SELECT id FROM sheets WHERE id=?", (sid,)).fetchone():
+            abort(404)
+    finally:
+        con.close()
+    tid = tasks.add_task(sid, title, due=due)
+    if request.form:
+        return redirect(url_for("sheet_view", sid=sid))
+    return jsonify(ok=True, id=tid)
+
+
+@app.post("/api/task/<int:tid>/status")
+def task_status(tid):
+    st = (request.get_json(silent=True) or {}).get("status") or request.form.get("status")
+    if st not in tasks.TASK_STATUSES:
+        abort(400, description=f"status must be one of {tasks.TASK_STATUSES}")
+    con = db.connect()
+    try:
+        row = con.execute("SELECT sheet_id FROM tasks WHERE id=?", (tid,)).fetchone()
+    finally:
+        con.close()
+    if not row:
+        abort(404)
+    tasks.set_task_status(tid, st)
+    if request.form:
+        return redirect(url_for("sheet_view", sid=row["sheet_id"]))
+    return jsonify(ok=True, status=st)
+
+
+@app.post("/api/payment/<int:pid>/status")
+def payment_status(pid):
+    st = (request.get_json(silent=True) or {}).get("status") or request.form.get("status")
+    if st not in ("prepared", "paid"):
+        abort(400, description="status must be prepared|paid")
+    con = db.connect()
+    try:
+        row = con.execute("SELECT sheet_id FROM payments WHERE id=?", (pid,)).fetchone()
+    finally:
+        con.close()
+    if not row:
+        abort(404)
+    qrpay.set_payment_status(pid, st)
+    if request.form:
+        return redirect(url_for("sheet_view", sid=row["sheet_id"]))
+    return jsonify(ok=True, status=st)
+
+
+@app.get("/ics/<int:tid>")
+def task_ics(tid):
+    """Download one task as an .ics all-day event (deadline calendar entry)."""
+    con = db.connect()
+    try:
+        t = con.execute("SELECT * FROM tasks WHERE id=?", (tid,)).fetchone()
+        title = tasks.mail_title(con, t["sheet_id"]) if t else None
+    finally:
+        con.close()
+    if not t or not t["due"]:
+        abort(404)
+    resp = app.response_class(tasks.make_ics(t, mail_title=title),
+                              mimetype="text/calendar")
+    resp.headers["Content-Disposition"] = f"attachment; filename=butler-task-{tid}.ics"
+    return resp
 
 
 # --------------------------------------------------------------------------- #

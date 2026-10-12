@@ -24,6 +24,7 @@ scanner -> intake watcher -> registry (SQLite) -> analyzer (vision LLM -> cited 
 | `butler-analyze`   | vision analysis -> cited facts            | —    |
 | `butler-board`     | Kanban board (browse/review)              | 9500 |
 | `scan-watch`       | ADS-1000W: ICMP watch + on-demand scan sessions | —  |
+| `butler-remind`    | deadline reminders -> Telegram (+ overdue) | —   |
 
 Scans happen only on request — no ambient polling. The board's scanner panel
 drives one-by-one feeding: *Scan sheet* / *Finish batch* write a request file
@@ -39,6 +40,10 @@ python3 -m butler.cli ingest        # register new scan runs
 python3 -m butler.cli analyze       # analyze all pending sheets
 python3 -m butler.cli analyze --sheet 1 --no-notify   # one sheet, quiet
 python3 -m butler.cli analyze-loop  # daemon: continuous analysis
+python3 -m butler.cli extract       # P3 backfill: QR payment decode + deadline tasks
+python3 -m butler.cli tasks         # list tasks + reminder progress
+python3 -m butler.cli task add --sheet 5 --title "pay invoice" --due 2026-11-04
+python3 -m butler.cli remind        # one reminder pass (--dry = show only, --asof YYYY-MM-DD = QA)
 python3 -m butler.cli llm           # show analysis backend + probe endpoints
 python3 -m butler.cli llm monster   # switch analysis to the local monster model
 python3 -m butler.web               # board on :9500
@@ -49,6 +54,7 @@ python3 -m butler.cli status        # what the registry knows
 
 - `butler/` — package: `db` (SQLite), `intake` (watcher), `analyze` (vision
   analysis), `llm` (provider adapter — DeepSeek default, local `monster` option),
+  `tasks` (deadlines, reminder engine, `.ics`), `qrpay` (Swiss QR payment prep),
   `notify` (Telegram), `web` (Flask board), `cli`, `credentials`
 - `templates/`, `static/` — board UI
 - `golden/` — labeled test set + checker (QA)

@@ -52,6 +52,36 @@ CREATE TABLE IF NOT EXISTS facts(
   confidence REAL
 );
 CREATE INDEX IF NOT EXISTS idx_facts_sheet ON facts(sheet_id);
+CREATE TABLE IF NOT EXISTS tasks(
+  id         INTEGER PRIMARY KEY,
+  sheet_id   INTEGER REFERENCES sheets(id),
+  title      TEXT,
+  kind       TEXT DEFAULT 'task',   -- task | deadline (auto, from analysis facts)
+  due        TEXT,                  -- ISO YYYY-MM-DD (NULL = no date)
+  status     TEXT DEFAULT 'open',   -- open | done | cancelled
+  source     TEXT DEFAULT 'user',   -- user | analysis
+  created_at REAL,
+  done_at    REAL
+);
+CREATE INDEX IF NOT EXISTS idx_tasks_sheet ON tasks(sheet_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_open ON tasks(status, due);
+CREATE TABLE IF NOT EXISTS reminders(
+  id          INTEGER PRIMARY KEY,
+  task_id     INTEGER REFERENCES tasks(id),
+  offset_days INTEGER,              -- 14|7|3|1 ... -1 = overdue notice
+  sent_at     REAL,
+  UNIQUE(task_id, offset_days)
+);
+CREATE TABLE IF NOT EXISTS payments(
+  id         INTEGER PRIMARY KEY,
+  sheet_id   INTEGER UNIQUE REFERENCES sheets(id),
+  ts         REAL,
+  payload    TEXT,                  -- raw Swiss QR payload (SPC ...)
+  data_json  TEXT,                  -- parsed payment data (prepared only — the user pays)
+  check_json TEXT,                  -- cross-check vs the analysis facts
+  status     TEXT DEFAULT 'prepared',  -- prepared | paid
+  status_ts  REAL
+);
 """
 
 
