@@ -374,6 +374,27 @@ def test_trash_endpoint(web):
           "/batch/1" in r.headers.get("Location", ""))
 
 
+def test_live_board(web):
+    """Live board: fresh-feed cards show reading progress; refresh hooks shipped."""
+    con = db.connect()
+    con.execute("INSERT INTO batches(id,key,ts,source,folder,status,created_at) "
+                "VALUES (5,'sessions/20261012_140000','20261012_140000','scanner',?,"
+                "'registered',0)", (str(TMP / "b5"),))
+    con.execute("INSERT INTO sheets(id,batch_id,sheet_no,front,back,status) VALUES "
+                "(7,5,1,'sheets/s1_front.jpg','sheets/s1_back.jpg','analyzing')")
+    con.execute("INSERT INTO sheets(id,batch_id,sheet_no,front,back,status) VALUES "
+                "(8,5,2,'sheets/s2_front.jpg',NULL,'inbox')")
+    con.commit()
+    con.close()
+    html = web.get("/").get_data(as_text=True)
+    blk = col_block(html, "analyzing")
+    check("L1 fresh-feed card in the analyzing lane", 'data-batch="5"' in blk)
+    check("L2 card shows live reading progress", "reading scan 1 of 2…" in blk)
+    js = web.get("/static/board.js").get_data(as_text=True)
+    check("L3 board auto-refresh hook", "setInterval(refreshBoard" in js)
+    check("L4 delegated card interactions", "closest('.card')" in js)
+
+
 def main():
     seed()
     from butler.web import app
@@ -384,6 +405,7 @@ def main():
     test_analyzer_paths(web)
     test_letter_page(web)
     test_trash_endpoint(web)
+    test_live_board(web)
     print()
     if FAIL:
         print(f"FAILURES: {FAIL}  (pass {PASS})")

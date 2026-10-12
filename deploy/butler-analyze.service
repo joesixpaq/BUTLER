@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/home/hermes/BUTLER
-ExecStart=/usr/bin/python3 -m butler.cli analyze-loop --interval 20
+ExecStart=/usr/bin/python3 -m butler.cli analyze-loop --interval 10
 Restart=always
 RestartSec=10
 Nice=5

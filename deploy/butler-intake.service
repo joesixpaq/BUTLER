@@ -5,7 +5,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=/home/hermes/BUTLER
-ExecStart=/usr/bin/python3 -m butler.cli ingest-loop --interval 30
+ExecStart=/usr/bin/python3 -m butler.cli ingest-loop --interval 10
 Restart=always
 RestartSec=5
 Nice=10

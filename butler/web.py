@@ -199,6 +199,7 @@ def board():
             "n_scans": len(kept),
             "analyzed_n": sum(1 for s in kept if s.get("astatus") == "ok"),
             "errors_n": sum(1 for s in kept if s.get("astatus") == "error"),
+            "started_n": sum(1 for s in kept if s.get("status") == "analyzing"),
             "status": _batch_board_status(b, kept),
             "due_fmt": None, "due_cls": "", "pay": pay,
         }
