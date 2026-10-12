@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS batches(
   source     TEXT,                  -- scanner | ftp | email (later)
   folder     TEXT,                  -- absolute run folder
   status     TEXT DEFAULT 'registered',
+  board_status TEXT,                -- user-set letter column (NULL = derived from sheets)
   note       TEXT,
   notified   INTEGER DEFAULT 0,
   created_at REAL
@@ -26,7 +27,10 @@ CREATE TABLE IF NOT EXISTS sheets(
   sheet_no   INTEGER,               -- 1..N within batch (front/back pair per sheet)
   front      TEXT,                  -- path relative to batch folder
   back       TEXT,
-  status     TEXT DEFAULT 'inbox',  -- board column
+  status     TEXT DEFAULT 'inbox',  -- board column (letter-facing status lives on the batch)
+  excluded       INTEGER DEFAULT 0, -- scan removed from the letter (files kept on disk)
+  front_excluded INTEGER DEFAULT 0, -- single side removed (e.g. blank back)
+  back_excluded  INTEGER DEFAULT 0,
   meta_json  TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_sheets_batch ON sheets(batch_id);
@@ -95,11 +99,19 @@ def connect() -> sqlite3.Connection:
 def init() -> None:
     with connect() as con:
         con.executescript(SCHEMA)
+        _migrate(con)
 
 
-def set_status(sid: int, status: str) -> None:
-    with connect() as con:
-        con.execute("UPDATE sheets SET status=? WHERE id=?", (status, sid))
+def _migrate(con) -> None:
+    """Additive migrations for registries created before the batch-view rework
+    (2026-10-12): letter column on batches; scan/side removal flags on sheets."""
+    bcols = {r["name"] for r in con.execute("PRAGMA table_info(batches)")}
+    if "board_status" not in bcols:
+        con.execute("ALTER TABLE batches ADD COLUMN board_status TEXT")
+    scols = {r["name"] for r in con.execute("PRAGMA table_info(sheets)")}
+    for c in ("excluded", "front_excluded", "back_excluded"):
+        if c not in scols:
+            con.execute(f"ALTER TABLE sheets ADD COLUMN {c} INTEGER DEFAULT 0")
 
 
 def get_sheet(sid: int):

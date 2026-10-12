@@ -8,11 +8,19 @@
 </head>
 <body>
 <header>
-  <h1>Sheet {{ s.sheet_no }} <span class="sub">{{ s.batch_key }}</span></h1>
-  <a class="back" href="/">← board</a>
+  <h1>Scan {{ s.sheet_no }} <span class="sub">{{ s.batch_key }}</span></h1>
+  <div><a class="back" href="{{ url_for('batch_view', bid=s.batch_id) }}">← letter</a> · <a class="back" href="{{ url_for('board') }}">board</a></div>
 </header>
 {% if s.batch_status == 'trashed' %}
 <section class="banner">This batch was trashed — its files are archived (not deleted). Images may be unavailable.</section>
+{% endif %}
+{% if s.excluded %}
+<section class="banner">This scan was removed from the letter — it is hidden from the letter view (files kept on disk).
+  <form method="post" action="{{ url_for('exclude_scan', sid=s.id) }}" style="display:inline">
+    <input type="hidden" name="scope" value="scan"><input type="hidden" name="value" value="0">
+    <button type="submit">restore scan</button>
+  </form>
+</section>
 {% endif %}
 <section class="detail">
   <div class="imgs">
@@ -36,14 +44,15 @@
       </dd>
       <dt>scanned</dt><dd>{{ s.batch_ts }}</dd>
       {% if s.batch_note %}<dt>note</dt><dd>{{ s.batch_note }}</dd>{% endif %}
-      <dt>status</dt>
+      <dt>letter status</dt>
       <dd>
-        <form method="post" action="{{ url_for('set_status', sid=s.id) }}">
+        <form method="post" action="{{ url_for('set_batch_status', bid=s.batch_id) }}">
           <select name="status">
-            {% for st in statuses %}<option value="{{ st }}" {% if st == s.status %}selected{% endif %}>{{ st }}</option>{% endfor %}
+            {% for st in statuses %}<option value="{{ st }}" {% if st == letter_status %}selected{% endif %}>{{ st }}</option>{% endfor %}
           </select>
           <button type="submit">save</button>
         </form>
+        <span class="dim small">moves the whole letter</span>
       </dd>
       {% if pdf %}<dt>pdf</dt><dd><a href="{{ url_for('pdf', bid=s.batch_id) }}">open batch PDF</a></dd>{% endif %}
       <dt>analysis</dt>

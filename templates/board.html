@@ -8,8 +8,8 @@
 </head>
 <body>
 <header>
-  <h1>BUTLER <span class="sub">mail board</span></h1>
-  <div class="meta">{{ total }} sheet(s) · {{ batches }} batch(es){% if tasks_open %} · {{ tasks_open }} open task(s){% if tasks_next %} — next due {{ tasks_next }}{% endif %}{% endif %} · drag cards between columns</div>
+  <h1>BUTLER <span class="sub">mail board — one card per letter</span></h1>
+  <div class="meta">{{ letters }} letter(s) · {{ scans }} scan(s){% if tasks_open %} · {{ tasks_open }} open task(s){% if tasks_next %} — next due {{ tasks_next }}{% endif %}{% endif %} · drag a letter between columns</div>
 </header>
 
 <section class="scanner">
@@ -28,36 +28,37 @@
   <section class="col" data-status="{{ st }}">
     <h2>{{ st }} <span class="count">{{ cols[st]|length }}</span></h2>
     <div class="cards">
-      {% for s in cols[st] %}
-      {% set d = s.docs[0] if s.docs else None %}
-      <article class="card" draggable="true" data-id="{{ s.id }}">
-        <a href="{{ url_for('sheet_view', sid=s.id) }}">
-          <img src="{{ url_for('img', sid=s.id, side='front') }}" alt="sheet {{ s.sheet_no }} front" loading="lazy">
+      {% for c in cols[st] %}
+      {% set b = c.b %}
+      <article class="card" draggable="true" data-batch="{{ b.id }}">
+        <a href="{{ url_for('batch_view', bid=b.id) }}">
+          {% if c.cover %}<img src="{{ url_for('img', sid=c.cover.sid, side=c.cover.side) }}" alt="letter cover" loading="lazy">
+          {% else %}<div class="nocover">no scans left</div>{% endif %}
         </a>
         <div class="card-body">
-          {% if d %}
-          <div class="title">{{ d.title }}</div>
+          {% if c.prim %}
+          <div class="title">{{ c.prim.title }}</div>
           <div class="chips">
-            <span class="chip pri pri-{{ (d.priority or 'p3')|lower }}">{{ d.priority or 'P3' }}</span>
-            <span class="chip">{{ d.category }}</span>
-            {% if d.needs_review %}<span class="chip warn">review</span>{% endif %}
-            {% if s.task_due %}<span class="chip due {{ s.due_cls }}">due {{ s.task_due_fmt }}</span>{% endif %}
-            {% if s.pay %}<span class="chip pay {% if s.pay.status == 'paid' %}ok{% endif %}">{% if s.pay.status == 'paid' %}paid{% else %}pay {{ s.pay.amount }}{% endif %}</span>{% endif %}
-            {% if s.docs|length > 1 %}<span class="chip">+{{ s.docs|length - 1 }} more</span>{% endif %}
+            <span class="chip pri pri-{{ c.pri|lower }}">{{ c.pri }}</span>
+            {% if c.prim.category %}<span class="chip">{{ c.prim.category }}</span>{% endif %}
+            {% if c.prim.needs_review %}<span class="chip warn">review</span>{% endif %}
+            {% if c.due_fmt %}<span class="chip due {{ c.due_cls }}">due {{ c.due_fmt }}</span>{% endif %}
+            {% if c.pay %}<span class="chip pay {% if c.pay.status == 'paid' %}ok{% endif %}">{% if c.pay.status == 'paid' %}paid{% else %}pay {{ c.pay.amount }}{% endif %}</span>{% endif %}
+            {% if c.n_scans > 1 %}<span class="chip">{{ c.n_scans }} scans</span>{% endif %}
           </div>
-          <div class="factsline">{{ d.sender or '—' }}{% for f in (d.facts or [])[:2] %} · {{ f.kind }}: {{ f.value }}{% endfor %}</div>
-          {% elif s.status == 'analyzing' %}
-          <div class="title">reading…</div>
-          <div class="factsline">sheet {{ s.sheet_no }} · {{ s.batch_key.split('/')[-1] }}</div>
-          {% elif s.astatus == 'error' %}
+          <div class="factsline">{{ c.prim.sender or '—' }} · {{ b.key.split('/')[-1] }}{% if c.analyzed_n < c.n_scans %} · analyzing {{ c.analyzed_n }}/{{ c.n_scans }}{% endif %}</div>
+          {% elif c.errors_n %}
           <div class="title">analysis failed</div>
-          <div class="factsline">sheet {{ s.sheet_no }} — open card to retry</div>
-          {% elif s.astatus == 'ok' %}
+          <div class="factsline">{{ b.key.split('/')[-1] }} — open the letter to retry</div>
+          {% elif c.n_scans == 0 %}
+          <div class="title">no scans left</div>
+          <div class="factsline">{{ b.key.split('/')[-1] }}</div>
+          {% elif c.analyzed_n %}
           <div class="title">no mail detected</div>
-          <div class="factsline">sheet {{ s.sheet_no }} · blank?</div>
+          <div class="factsline">{{ b.key.split('/')[-1] }} · blank or advert?</div>
           {% else %}
-          <div class="title">Sheet {{ s.sheet_no }} <span class="batch">· {{ s.batch_key.split('/')[-1] }}</span></div>
-          <div class="factsline">waiting for analysis</div>
+          <div class="title">Letter <span class="batch">· {{ b.key.split('/')[-1] }}</span></div>
+          <div class="factsline">{% if b.note %}{{ b.note }} · {% endif %}waiting for analysis{% if c.n_scans > 1 %} · {{ c.n_scans }} scans{% endif %}</div>
           {% endif %}
         </div>
       </article>

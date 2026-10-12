@@ -156,8 +156,13 @@ def decode_for_sheet(sid, verbose=False, con=None):
             (sid,)).fetchone()
         if not s or s["bstatus"] == "trashed":
             return None
-        paths = [pathlib.Path(s["folder"]) / p for p in (s["front"], s["back"]) if p]
-        paths = [p for p in paths if p.exists()]
+        paths = []
+        for rel, flag in ((s["front"], s["front_excluded"]),
+                          (s["back"], s["back_excluded"])):
+            if rel and not flag:
+                p = pathlib.Path(s["folder"]) / rel
+                if p.exists():
+                    paths.append(p)
         payload = _decode_qr(paths)
         if not payload:
             if verbose:

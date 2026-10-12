@@ -96,63 +96,125 @@ def _batch_pdf(batch_key, folder):
     return pdfs[-1] if pdfs else None
 
 
+PRI_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+
+
+def _batch_board_status(b, kept):
+    """Letter column: the user's move wins; otherwise derive it from its scans.
+
+    Derived: fresh -> inbox; anything still being read -> analyzing (with
+    progress on the card); all analyzed -> review; all noise -> noise.
+    A letter whose scans were all removed shows under noise (nothing left).
+    """
+    if b.get("board_status"):
+        return b["board_status"]
+    if not kept:
+        return "noise"
+    sts = [s.get("status") for s in kept]
+    if any(st == "analyzing" for st in sts):
+        return "analyzing"
+    if any(st == "inbox" for st in sts):
+        done = any(st in ("review", "action", "waiting", "filed") for st in sts)
+        return "analyzing" if done else "inbox"
+    if all(st == "noise" for st in sts):
+        return "noise"
+    return "review"
+
+
 @app.get("/")
 def board():
+    """Board of LETTERS — one card per batch (a batch = the sheets of one letter).
+
+    Every user-facing action is letter-wide (drag = move the whole letter);
+    the only per-scan actions are removing/restoring a scan or a side
+    (e.g. a blank back) — those live on the letter page.
+    """
     con = db.connect()
     try:
-        rows = [dict(r) for r in con.execute(
-            "SELECT s.*, b.key AS batch_key, b.ts AS batch_ts, "
-            "a.status AS astatus, a.error AS aerror, a.json AS ajson "
-            "FROM sheets s JOIN batches b ON b.id = s.batch_id "
-            "LEFT JOIN analyses a ON a.sheet_id = s.id "
-            "WHERE COALESCE(b.status, '') != 'trashed' "
-            "ORDER BY s.id")]
-        n_batches = con.execute(
-            "SELECT COUNT(*) FROM batches WHERE COALESCE(status, '') != 'trashed'"
-        ).fetchone()[0]
-        tmap = {r["sheet_id"]: r for r in con.execute(
-            "SELECT sheet_id, MIN(CASE WHEN due IS NOT NULL THEN due END) AS due, "
-            "COUNT(*) AS n FROM tasks WHERE status='open' GROUP BY sheet_id")}
+        brows = [dict(b) for b in con.execute(
+            "SELECT * FROM batches WHERE COALESCE(status, '') != 'trashed' "
+            "ORDER BY id DESC")]
+        srows = [dict(s) for s in con.execute(
+            "SELECT s.*, a.status AS astatus, a.error AS aerror, a.json AS ajson "
+            "FROM sheets s LEFT JOIN analyses a ON a.sheet_id = s.id "
+            "ORDER BY s.batch_id, s.sheet_no, s.id")]
+        tmap = {}
+        for r in con.execute(
+                "SELECT sheet_id, MIN(CASE WHEN due IS NOT NULL THEN due END) AS due "
+                "FROM tasks WHERE status='open' GROUP BY sheet_id"):
+            tmap[r["sheet_id"]] = r["due"]
         pmap = {r["sheet_id"]: r for r in con.execute(
             "SELECT sheet_id, status, data_json FROM payments")}
     finally:
         con.close()
-    for r in rows:
-        r["analysis"] = None
-        r["docs"] = []
-        if r.get("ajson"):
-            try:
-                r["analysis"] = json.loads(r["ajson"])
-                r["docs"] = r["analysis"].get("documents") or []
-            except (TypeError, json.JSONDecodeError):
-                pass
+
+    by_batch = {}
+    for r in srows:
+        by_batch.setdefault(r["batch_id"], []).append(r)
+
     today = date.today()
-    for r in rows:
-        t = tmap.get(r["id"])
-        r["task_due"] = t["due"] if t else None
-        r["task_open_n"] = t["n"] if t else 0
-        r["task_due_fmt"] = None
-        r["due_cls"] = ""
-        if r["task_due"]:
-            due_d = date.fromisoformat(r["task_due"])
-            dd = (due_d - today).days
-            r["task_due_fmt"] = tasks.fmt_date(due_d)
-            r["due_cls"] = "due-past" if dd < 0 else ("due-soon" if dd <= 7 else "")
-        p = pmap.get(r["id"])
-        r["pay"] = None
-        if p:
-            try:
-                pd = json.loads(p["data_json"] or "{}")
-            except (TypeError, json.JSONDecodeError):
-                pd = {}
-            r["pay"] = {"status": p["status"],
-                        "amount": f"{pd.get('amount') or ''} {pd.get('currency') or 'CHF'}".strip()}
+    cards = []
+    scans_kept = 0
+    for b in brows:
+        kept = sorted((s for s in by_batch.get(b["id"], []) if not s.get("excluded")),
+                      key=lambda s: (s["sheet_no"] or 0, s["id"]))
+        scans_kept += len(kept)
+        docs = []
+        for s in kept:
+            if s.get("ajson"):
+                try:
+                    docs += (json.loads(s["ajson"]) or {}).get("documents") or []
+                except (TypeError, json.JSONDecodeError):
+                    pass
+        real = [d for d in docs if (d.get("disposition") or "") != "noise"] or docs
+        prim = real[0] if real else None
+        pri = min((d.get("priority") or "P3" for d in real),
+                  key=lambda p: PRI_ORDER.get(p, 3)) if real else "P3"
+        cover = None
+        for s in kept:
+            if s.get("front") and not s.get("front_excluded"):
+                cover = {"sid": s["id"], "side": "front"}
+                break
+            if s.get("back") and not s.get("back_excluded"):
+                cover = {"sid": s["id"], "side": "back"}
+                break
+        due_iso = None
+        for s in kept:
+            d = tmap.get(s["id"])
+            if d and (due_iso is None or d < due_iso):
+                due_iso = d
+        pay = None
+        for s in kept:
+            p = pmap.get(s["id"])
+            if p:
+                try:
+                    pd = json.loads(p["data_json"] or "{}")
+                except (TypeError, json.JSONDecodeError):
+                    pd = {}
+                pay = {"status": p["status"],
+                       "amount": f"{pd.get('amount') or ''} {pd.get('currency') or 'CHF'}".strip()}
+                break
+        card = {
+            "b": b, "prim": prim, "pri": pri, "cover": cover,
+            "n_scans": len(kept),
+            "analyzed_n": sum(1 for s in kept if s.get("astatus") == "ok"),
+            "errors_n": sum(1 for s in kept if s.get("astatus") == "error"),
+            "status": _batch_board_status(b, kept),
+            "due_fmt": None, "due_cls": "", "pay": pay,
+        }
+        if due_iso:
+            dd0 = date.fromisoformat(due_iso)
+            dd = (dd0 - today).days
+            card["due_fmt"] = tasks.fmt_date(dd0)
+            card["due_cls"] = "due-past" if dd < 0 else ("due-soon" if dd <= 7 else "")
+        cards.append(card)
+
     cols = {st: [] for st in db.SHEET_STATUSES}
-    for r in rows:
-        cols.setdefault(r["status"], []).append(r)
+    for c in cards:
+        cols.setdefault(c["status"], []).append(c)
     next_due, n_open = tasks.open_summary()
     return render_template("board.html", cols=cols, statuses=db.SHEET_STATUSES,
-                           total=len(rows), batches=n_batches,
+                           letters=len(brows), scans=scans_kept,
                            tasks_open=n_open,
                            tasks_next=tasks.fmt_date(date.fromisoformat(next_due))
                            if next_due else None)
@@ -160,6 +222,7 @@ def board():
 
 @app.get("/sheet/<int:sid>")
 def sheet_view(sid):
+    """Scan zoom view — a part of its letter. Letter-wide status only."""
     s = _sheet_row(sid)
     if not s:
         abort(404)
@@ -174,12 +237,59 @@ def sheet_view(sid):
     try:
         facts = [dict(f) for f in con.execute(
             "SELECT * FROM facts WHERE sheet_id=? ORDER BY doc_idx, id", (sid,))]
+        b = con.execute("SELECT * FROM batches WHERE id=?", (s["batch_id"],)).fetchone()
+        sibs = [dict(r) for r in con.execute(
+            "SELECT id, status, excluded FROM sheets WHERE batch_id=?", (s["batch_id"],))]
     finally:
         con.close()
+    kept = [x for x in sibs if not x["excluded"]]
+    letter_status = _batch_board_status(dict(b), kept) if b else s["status"]
     return render_template("sheet.html", s=s, statuses=db.SHEET_STATUSES, pdf=pdf,
                            analysis=analysis, facts=facts,
+                           letter_status=letter_status,
                            tasks=tasks.sheet_task_rows(sid),
                            payment=qrpay.payment_for_sheet(sid))
+
+
+@app.get("/batch/<int:bid>")
+def batch_view(bid):
+    """The LETTER page — all scans of one letter plus its letter-wide actions."""
+    con = db.connect()
+    try:
+        b = con.execute("SELECT * FROM batches WHERE id=?", (bid,)).fetchone()
+        if not b:
+            abort(404)
+        sheets = [dict(s) for s in con.execute(
+            "SELECT s.*, a.status AS astatus, a.error AS aerror, a.json AS ajson "
+            "FROM sheets s LEFT JOIN analyses a ON a.sheet_id = s.id "
+            "WHERE s.batch_id=? ORDER BY s.sheet_no, s.id", (bid,))]
+    finally:
+        con.close()
+    kept = [s for s in sheets if not s.get("excluded")]
+    removed = [s for s in sheets if s.get("excluded")]
+    for s in kept:
+        s["docs"] = []
+        if s.get("ajson"):
+            try:
+                s["docs"] = (json.loads(s["ajson"]) or {}).get("documents") or []
+            except (TypeError, json.JSONDecodeError):
+                pass
+    status = _batch_board_status(dict(b), kept)
+    pdf = _batch_pdf(b["key"], b["folder"])
+    payment = None
+    for s in kept:
+        payment = qrpay.payment_for_sheet(s["id"])
+        if payment:
+            break
+    trows = []
+    for s in kept:
+        for t in tasks.sheet_task_rows(s["id"]):
+            t["sheet_no"] = s["sheet_no"]
+            trows.append(t)
+    return render_template("batch.html", b=b, sheets=kept, removed=removed,
+                           status=status, statuses=db.SHEET_STATUSES, pdf=pdf,
+                           payment=payment, tasks=trows,
+                           trashed=(b["status"] == "trashed"))
 
 
 @app.get("/img/<int:sid>/<side>")
@@ -210,20 +320,55 @@ def pdf(bid):
     return send_file(p, mimetype="application/pdf", as_attachment=False)
 
 
-@app.post("/api/sheet/<int:sid>/status")
-def set_status(sid):
+@app.post("/api/batch/<int:bid>/status")
+def set_batch_status(bid):
+    """Move the WHOLE letter (all its scans) to another column."""
     st = (request.get_json(silent=True) or {}).get("status") or request.form.get("status")
     if st not in db.SHEET_STATUSES:
         abort(400, description=f"status must be one of {db.SHEET_STATUSES}")
     con = db.connect()
     try:
-        con.execute("UPDATE sheets SET status = ? WHERE id = ?", (st, sid))
+        if not con.execute("SELECT id FROM batches WHERE id=?", (bid,)).fetchone():
+            abort(404)
+        con.execute("UPDATE batches SET board_status=? WHERE id=?", (st, bid))
+        con.execute("UPDATE sheets SET status=? WHERE batch_id=?", (st, bid))
         con.commit()
     finally:
         con.close()
     if request.form:
-        return redirect(url_for("sheet_view", sid=sid))
+        return redirect(url_for("batch_view", bid=bid))
     return jsonify(ok=True, status=st)
+
+
+@app.post("/api/sheet/<int:sid>/exclude")
+def exclude_scan(sid):
+    """Remove/restore one scan (scope=scan) or one side (front|back) from a letter.
+
+    Files are never touched — this only hides the scan/side from the letter
+    view and from future analysis passes; value=0 restores.
+    """
+    body = request.get_json(silent=True) or {}
+    scope = body.get("scope") or request.form.get("scope") or "scan"
+    value = body.get("value")
+    if value is None:
+        value = request.form.get("value", "1")
+    value = 1 if str(value).lower() in ("1", "true", "yes", "on") else 0
+    if scope not in ("scan", "front", "back"):
+        abort(400, description="scope must be scan|front|back")
+    col = {"scan": "excluded", "front": "front_excluded", "back": "back_excluded"}[scope]
+    con = db.connect()
+    try:
+        row = con.execute("SELECT batch_id FROM sheets WHERE id=?", (sid,)).fetchone()
+        if not row:
+            abort(404)
+        con.execute(f"UPDATE sheets SET {col}=? WHERE id=?", (value, sid))
+        con.commit()
+        bid = row["batch_id"]
+    finally:
+        con.close()
+    if request.form:
+        return redirect(url_for("batch_view", bid=bid))
+    return jsonify(ok=True, scope=scope, value=value)
 
 
 @app.post("/api/sheet/<int:sid>/requeue")

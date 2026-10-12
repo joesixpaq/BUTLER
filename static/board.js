@@ -1,7 +1,7 @@
-// BUTLER board — drag a card to a column to change its status.
+// BUTLER board — drag a LETTER card to a column to move the whole letter.
 document.querySelectorAll('.card').forEach(card => {
   card.addEventListener('dragstart', e => {
-    e.dataTransfer.setData('text/plain', card.dataset.id);
+    e.dataTransfer.setData('text/plain', card.dataset.batch);
     card.classList.add('dragging');
   });
   card.addEventListener('dragend', () => card.classList.remove('dragging'));
@@ -16,7 +16,7 @@ document.querySelectorAll('.col').forEach(col => {
     const id = e.dataTransfer.getData('text/plain');
     const status = col.dataset.status;
     try {
-      const r = await fetch(`/api/sheet/${id}/status`, {
+      const r = await fetch(`/api/batch/${id}/status`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status })

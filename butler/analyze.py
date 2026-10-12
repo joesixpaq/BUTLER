@@ -176,14 +176,27 @@ def analyze_sheet(sid, notify=True, verbose=False):
         ).fetchone()
         if not s:
             raise ValueError(f"sheet {sid} not found")
+
+        # Which sides are part of the letter? (removed sides are skipped)
+        paths, sides = [], []
+        for side, rel in (("front", s["front"]), ("back", s["back"])):
+            if not rel or s[f"{side}_excluded"]:
+                continue
+            p = _img_path(s["folder"], rel)
+            if p and p.exists():
+                paths.append(p)
+                sides.append(side)
+        if not paths:
+            included = [1 for side, rel in (("front", s["front"]), ("back", s["back"]))
+                        if rel and not s[f"{side}_excluded"]]
+            if not included:  # every side was removed from the letter — nothing to read
+                return {"sheet": sid, "status": "skipped",
+                        "reason": "all sides removed from the letter"}
+            raise llm.LLMError("no image files found")
+
         con.execute("UPDATE sheets SET status='analyzing' WHERE id=?", (sid,))
         con.commit()
 
-        paths = [p for p in (_img_path(s["folder"], s["front"]),
-                             _img_path(s["folder"], s["back"])) if p and p.exists()]
-        if not paths:
-            raise llm.LLMError("no image files found")
-        sides = ["front", "back"][: len(paths)]
         paper, dpi = _paper_info(s["folder"])
         prompt = PROMPT.format(paper=paper, dpi=dpi, sides=", ".join(sides))
 
@@ -272,8 +285,12 @@ def pending_sheet_ids():
     con = db.connect()
     try:
         return [r["id"] for r in con.execute(
-            "SELECT s.id FROM sheets s LEFT JOIN analyses a ON a.sheet_id=s.id "
+            "SELECT s.id FROM sheets s JOIN batches b ON b.id=s.batch_id "
+            "LEFT JOIN analyses a ON a.sheet_id=s.id "
             "WHERE s.status IN ('inbox','analyzing') "
+            "AND COALESCE(b.status,'')!='trashed' "
+            "AND COALESCE(s.excluded,0)=0 "
+            "AND (COALESCE(s.front_excluded,0)=0 OR COALESCE(s.back_excluded,0)=0) "
             "AND (a.id IS NULL OR (a.status='error' AND a.attempts < ?)) "
             "ORDER BY s.id", (MAX_ATTEMPTS,))]
     finally:

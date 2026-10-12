@@ -32,6 +32,17 @@ that `scan-watch` executes (single device controller); a closed session
 registers as one batch. Each batch can be archived ("trash", never deleted)
 from its sheet view.
 
+## Board (letters)
+
+A batch = the sheets of **one letter**. The board shows one card per letter;
+drag a card to move the whole letter between columns. The letter page lists
+its scans (thumbnails → scan view) and offers **per-scan removal** — a whole
+scan or just one side (e.g. a blank back); removals are restorable and files
+are never deleted. The letter page also carries the payment prep, aggregated
+tasks & reminders, and the letter-wide status/trash. The scan view (zoom)
+shows one sheet's images and cited facts; its status control moves the whole
+letter.
+
 ## Quickstart
 
 ```bash

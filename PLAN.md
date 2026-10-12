@@ -1,6 +1,6 @@
 # BUTLER — mail triage & task planning
 
-**Status:** v0.5 (2026-10-12) — P0–**P3** live: manual scan sessions (scans ONLY on board request; ICMP watch only) · per-mail vision analysis · **deadline reminders (T-14/7/3/1 + overdue, `butler-remind`) · Swiss-QR payment prep (decode → copy-ready block; user pays) · tasks with `.ics`**; **first real mail processed end-to-end** (Post CH invoice: payment decoded from its QR slip, all checks match the analysis); roadmap: coverage/dedupe layer (face identity, missing-page hints) · **Owner:** Дмитрий · **Builder:** Hermes (hermes-rpi5)
+**Status:** v0.6 (2026-10-12) — P0–**P3.7** live: manual scan sessions (scans ONLY on board request; ICMP watch only) · per-mail vision analysis (runtime backend: `monster`, local) · deadline reminders + Swiss-QR payment prep + tasks with `.ics` · **letter view: a batch = one letter — the board shows one card per letter, every user action is letter-wide, per-scan removal (blank backs) with restore**; first real mail processed end-to-end (Post CH invoice: payment decoded, checks match); roadmap: coverage/dedupe (face identity, missing-page hints) · **Owner:** Дмитрий · **Builder:** Hermes (hermes-rpi5)
 
 **One line:** scans of incoming postal mail go in; per-mail analysis, a browsable board, tasks and reminders come out — everything cited, nothing sent or deleted without approval.
 
@@ -53,11 +53,12 @@ scanner ─► intake watcher ─► registry (SQLite) ─► assembler (sheets�
 
 ## 5. Board (browse & work UI)
 
-- **Columns:** `Inbox → Analyzing → Review → Action → Waiting → Filed` (+ `Noise/Reference`). Priority badges P0–P3.
-- **Card = one mail:** title (sender + subject guess), date, page count, status, priority.
-- **Card detail:** the sheet images (front/back, zoomable), assembled PDF, extracted facts (each with citation), proposed tasks, action log.
+- **A batch = one letter** (the sheets fed in one scan session). The board shows **one card per letter** — the letter is the unit of every user action.
+- **Columns:** `Inbox → Analyzing → Review → Action → Waiting → Filed` (+ `Noise`). A letter's column is the user's move when dragged; otherwise derived from its scans (all fresh → inbox; being read → analyzing, with `analyzing n/m` progress; all done → review; all noise → noise; scans all removed → noise).
+- **Letter card:** cover (first kept scan), title, chips (P0–P3, category, review, due, pay, scan count), sender + batch key + analysis progress.
+- **Letter page:** all scans in order (thumbnails → scan view) with **per-scan removal/restore** — a whole scan or a single side (e.g. a blank back); files are never deleted, only hidden from the letter and from future analysis. Plus payment prep, aggregated tasks & reminders, per-scan analyses (cited facts live on the scan view), letter-wide status select and trash.
+- **Scan view** (zoom): one sheet's front/back images, cited facts, re-analyze. Status is letter-wide (the select moves the whole letter).
 - **Purpose:** "browse the scanned mails whenever he feels so" — the board is the home of processed mail; Telegram pings on arrival.
-- Manual status moves from the board; future: approve actions from the board.
 
 ## 6. Data model (v0)
 
@@ -104,6 +105,7 @@ Library layout: `~/BUTLER/library/<year>/<sender-or-category>/<mail-id>/` — si
 - **P1 — Assembly + Board v0:** sheets → mails grouping (blank/dupe handling); board v0: browse cards + sheet images + manual statuses. *(User's "browse whenever" requirement lands here.)*
 - **P2 — Analysis (DeepSeek):** ✅ done 2026-10-10 — vision analysis → cited facts (side+location) + per-mail summary; per-mail Telegram notification (batch-level arrival pings removed: "each mail is special"); board shows analysis (chips + facts table + re-analyze); golden set started (`golden/`, ALL PASS on test batch); needs_review flag → review queue.
 - **P3 — Planning & routing:** ✅ done 2026-10-12 — deadline facts → tasks (auto, from the analyzer) + manual tasks on the sheet page; reminder daemon `butler-remind`: Telegram T-14/7/3/1 (not before 09:00 local, catch-up, real-days wording, one "PASSED" notice, idempotent send log, trashed batches never ping); `.ics` export per task; **Swiss QR decode** (zxing-cpp) → payment prep block on the board (copy-ready fields, cross-checked vs the analysis, sibling-sheet fallback within the feeding batch) + payments shown inside reminders; "mark as paid" is a record only — the user pays. *(Approving actions from Telegram itself → P4.)*
+- **P3.7 — Letter view (batch = letter):** ✅ done 2026-10-12 — board cards = letters (one per batch); every user action is letter-wide (drag moves the whole batch; delete = trash the whole letter); the only per-scan actions are removing/restoring a scan or a single side (e.g. a blank back — files never deleted); excluded scans/sides are skipped by analysis; scan view is a sub-view of the letter. *(True sheet→mail assembly/dedupe stays on the coverage roadmap.)*
 - **P4 — Gated drafts:** reply drafts DE/EN/RU, form/return prep, print-ready outputs; audit.
 - **P5 — Later:** ~~local LLM swap (monster) = config~~ ✅ done 2026-10-10 (`butler llm` — DeepSeek default, monster local option); business stream when it exists; full-text OCR (tesseract) if needed; retention optional.
 
@@ -155,3 +157,10 @@ Open minor items: DeepSeek key auto-sourced (no action needed); board live on :9
 - **2026-10-12 note** — test artifact from the P3 loop: a reminder test task placed on sheet 2 (batch #1 = trashed) was correctly NOT pinged — the trashed-batch guard works; artifacts cleaned from the registry.
 - **2026-10-12 21:00** — **Analysis backend switched to `monster` (user decision)**: BUTLER's runtime mail analysis now runs on the local llama.cpp VLM — page images no longer leave the house. The software itself continues to be developed and debugged on DeepSeek (and `butler llm deepseek` remains the fallback). Smoke test on the real invoice scan (sheet 5 front, production prompt path): **PASS** — valid JSON via the production parser; all key facts found (CHF 52.00 / 48.10 / 3.90, deadline 04.11.2026, invoice no. + refs, IBAN, UID, MWST 8.10%, BIC — 17 cited facts); category/disposition/priority match DeepSeek (bill / action / P1); ~6.4 min per side at xhigh reasoning. Minor run-to-run variance observed (one run self-flagged `needs_review`, a second was confident) — the review queue stays the safety net. Raw+cleaned dump kept locally: `var/qa/monster-smoke-20261012.json`.
 - **2026-10-12 21:05** — P3 regression re-run with `monster` active: `deploy/p3-selftest/selftest.py` **85 checks ALL PASS** (the suite exercises the deterministic layer — QR/reminders — so it is backend-independent).
+- **2026-10-12 22:05** — **Letter view live — a batch = one letter (user decision)**: the board shows **one card per letter**; every user-facing action is letter-wide.
+  - Board cards = letters: cover + title + chips (P0–P3, category, review, due, pay, scan count) + `analyzing n/m` progress. A letter's column = the user's drag (stored in `batches.board_status`, synced onto all its scans) or derived from the scans (inbox / analyzing / review / noise; all scans removed → noise).
+  - **Letter page** `/batch/<id>`: scans in order (thumbnails → scan view) with per-scan **remove/restore** — a whole scan or a single side (`excluded` / `front_excluded` / `back_excluded` flags; files never touched; removed list with restore). Plus payment prep, aggregated tasks (with scan column), per-scan analyses, letter-wide status select, `trash letter`.
+  - Scan view: letter-status control (moves the whole letter — per the letter-units rule), removal banner + restore, "← letter" link. The old per-sheet status route is gone.
+  - Analyzer respects exclusions: pending skips fully-removed scans and trashed batches; the prompt receives only the kept sides; a fully-removed scan analyzes as a clean no-op.
+  - Additive migration (`batches.board_status`, three sheet flags — `butler init`); batch #3's column set to `action`, preserving the user's earlier per-sheet move of the Rechnung.
+  - Tests: new `deploy/batch-selftest/selftest.py` — **49 checks ALL PASS** (cards, derived/user status, letter-wide moves, scan/side removal + analyzer skip, letter/scan pages); legacy suites re-run green on the reworked board: p3-selftest (85), scanwatch session-test. Live proof: board = 1 card; remove/restore of scan 6's back verified end-to-end on the real letter (flag → "back removed" + restore on the letter page → clean).

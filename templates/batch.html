@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BUTLER — letter {{ b.id }}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='board.css') }}">
+</head>
+<body>
+<header>
+  <h1>Letter <span class="sub">{{ b.key }} · {{ b.ts }}</span></h1>
+  <a class="back" href="{{ url_for('board') }}">← board</a>
+</header>
+{% if trashed %}
+<section class="banner">This letter was trashed — its files are archived (not deleted). Images may be unavailable.</section>
+{% endif %}
+
+<section class="detail">
+  <div class="letter-main">
+    <h3 class="sec">Scans <span class="chip">{{ sheets|length }}</span></h3>
+    {% if sheets %}
+    <table class="facts scanlist">
+      <tr><th>#</th><th>scan</th><th>mail found</th><th></th></tr>
+      {% for s in sheets %}
+      <tr>
+        <td>{{ s.sheet_no }}</td>
+        <td class="thumbs">
+          {% if s.front and not s.front_excluded %}
+          <a href="{{ url_for('sheet_view', sid=s.id) }}"><img src="{{ url_for('img', sid=s.id, side='front') }}" alt="scan {{ s.sheet_no }} front"></a>
+          {% elif s.front %}
+          <span class="side-removed">front removed
+            <form method="post" action="{{ url_for('exclude_scan', sid=s.id) }}"><input type="hidden" name="scope" value="front"><input type="hidden" name="value" value="0"><button type="submit">restore</button></form>
+          </span>
+          {% endif %}
+          {% if s.back and not s.back_excluded %}
+          <a href="{{ url_for('sheet_view', sid=s.id) }}"><img src="{{ url_for('img', sid=s.id, side='back') }}" alt="scan {{ s.sheet_no }} back"></a>
+          {% elif s.back %}
+          <span class="side-removed">back removed
+            <form method="post" action="{{ url_for('exclude_scan', sid=s.id) }}"><input type="hidden" name="scope" value="back"><input type="hidden" name="value" value="0"><button type="submit">restore</button></form>
+          </span>
+          {% endif %}
+        </td>
+        <td>
+          {% if s.docs %}
+            {% for d in s.docs %}
+            <div>{% if d.disposition == 'noise' %}<span class="dim">{{ d.title }} (noise)</span>{% else %}{{ d.title }}{% endif %}
+              <span class="chip pri pri-{{ (d.priority or 'p3')|lower }}">{{ d.priority or 'P3' }}</span>
+              {% if d.category %}<span class="chip">{{ d.category }}</span>{% endif %}
+              {% if d.needs_review %}<span class="chip warn">review</span>{% endif %}
+            </div>
+            {% endfor %}
+            <div class="dim small"><a href="{{ url_for('sheet_view', sid=s.id) }}">open scan — images, cited facts, requeue →</a></div>
+          {% elif s.astatus == 'error' %}<span class="error">analysis failed</span> — <a href="{{ url_for('sheet_view', sid=s.id) }}">details</a>
+          {% elif s.astatus == 'ok' %}<span class="dim">no mail detected</span>
+          {% else %}<span class="dim">waiting for analysis…</span>{% endif %}
+        </td>
+        <td class="rowbtns">
+          {% if s.front %}<form method="post" action="{{ url_for('exclude_scan', sid=s.id) }}"><input type="hidden" name="scope" value="front"><input type="hidden" name="value" value="{% if s.front_excluded %}0{% else %}1{% endif %}"><button type="submit" title="hide just this side">{% if s.front_excluded %}show front{% else %}remove front{% endif %}</button></form>{% endif %}
+          {% if s.back %}<form method="post" action="{{ url_for('exclude_scan', sid=s.id) }}"><input type="hidden" name="scope" value="back"><input type="hidden" name="value" value="{% if s.back_excluded %}0{% else %}1{% endif %}"><button type="submit" title="hide just this side (e.g. a blank back)">{% if s.back_excluded %}show back{% else %}remove back{% endif %}</button></form>{% endif %}
+          <form method="post" action="{{ url_for('exclude_scan', sid=s.id) }}" onsubmit="return confirm('Remove this whole scan from the letter? Files stay on disk — restorable below.');"><input type="hidden" name="scope" value="scan"><input type="hidden" name="value" value="1"><button type="submit" title="remove the whole scan from this letter">remove scan</button></form>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <p class="dim">no scans in this letter (all removed — trash the letter if it was junk).</p>
+    {% endif %}
+
+    {% if removed %}
+    <h3 class="sec">Removed scans <span class="chip">{{ removed|length }}</span></h3>
+    <p class="dim small">Kept on disk; restore puts them back into the letter.</p>
+    <table class="facts">
+      {% for s in removed %}
+      <tr>
+        <td>scan {{ s.sheet_no }}</td>
+        <td class="dim">{{ s.front or '—' }}</td>
+        <td class="rowbtns">
+          <form method="post" action="{{ url_for('exclude_scan', sid=s.id) }}"><input type="hidden" name="scope" value="scan"><input type="hidden" name="value" value="0"><button type="submit">restore scan</button></form>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% endif %}
+  </div>
+
+  <aside>
+    <dl>
+      <dt>letter status</dt>
+      <dd>
+        <form method="post" action="{{ url_for('set_batch_status', bid=b.id) }}">
+          <select name="status">
+            {% for st in statuses %}<option value="{{ st }}" {% if st == status %}selected{% endif %}>{{ st }}</option>{% endfor %}
+          </select>
+          <button type="submit">save</button>
+        </form>
+        <span class="dim small">moves the whole letter</span>
+      </dd>
+      <dt>scanned</dt><dd>{{ b.ts }}</dd>
+      {% if b.note %}<dt>note</dt><dd>{{ b.note }}</dd>{% endif %}
+      {% if pdf %}<dt>pdf</dt><dd><a href="{{ url_for('pdf', bid=b.id) }}">open letter PDF</a></dd>{% endif %}
+      <dt>trash</dt>
+      <dd>
+        {% if trashed %}<span class="chip warn">trashed</span>
+        {% else %}
+        <form method="post" action="{{ url_for('trash_batch', bid=b.id) }}" onsubmit="return confirm('Trash the whole letter ({{ b.key }})? Files are archived, not deleted.');">
+          <button type="submit" title="archive this letter and remove it from the board">trash letter</button>
+        </form>
+        {% endif %}
+      </dd>
+    </dl>
+  </aside>
+</section>
+
+{% if payment %}
+<section class="pay">
+  <h3>Payment prep
+    <span class="chip">decoded from the Swiss QR code</span>
+    {% if payment.status == 'paid' %}<span class="chip ok">paid</span>
+    {% else %}<span class="chip warn">unpaid</span>{% endif %}
+    {% if payment.check_ok %}<span class="chip ok">details match the analysis</span>
+    {% else %}<span class="chip warn">check details vs analysis</span>{% endif %}
+  </h3>
+  <div class="paygrid">
+    <table class="facts">
+      <tr><th>creditor</th><td>{{ payment.data.creditor.name or '—' }}{% if payment.data.creditor.street %}, {{ payment.data.creditor.street }} {{ payment.data.creditor.house }}, {{ payment.data.creditor.zip }} {{ payment.data.creditor.town }}{% endif %}</td></tr>
+      <tr><th>QR-IBAN</th><td><code>{{ payment.data.iban_fmt or payment.data.iban }}</code></td></tr>
+      <tr><th>amount</th><td><b>{{ payment.data.amount }} {{ payment.data.currency or '' }}</b></td></tr>
+      {% if payment.data.reference %}
+      <tr><th>reference</th><td><code>{{ payment.data.reference_fmt or payment.data.reference }}</code> <span class="dim">{{ payment.data.ref_type }}</span></td></tr>
+      {% endif %}
+      {% if payment.data.debtor.name %}<tr><th>debtor</th><td>{{ payment.data.debtor.name }}</td></tr>{% endif %}
+      {% if payment.data.message %}<tr><th>message</th><td>{{ payment.data.message }}</td></tr>{% endif %}
+    </table>
+    <div class="paybtns">
+      <button type="button" id="copy-pay">copy payment details</button>
+      {% if payment.status == 'prepared' %}
+      <form method="post" action="{{ url_for('payment_status', pid=payment.id) }}"
+            onsubmit="return confirm('Mark as paid? You pay in your own banking — this only records it here.');">
+        <input type="hidden" name="status" value="paid">
+        <button type="submit">mark as paid</button>
+      </form>
+      {% else %}
+      <form method="post" action="{{ url_for('payment_status', pid=payment.id) }}">
+        <input type="hidden" name="status" value="prepared">
+        <button type="submit">undo paid</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+  <p class="dim">checks — amount: {{ payment.check_marks.amount }} · account: {{ payment.check_marks.iban }} · reference: {{ payment.check_marks.reference }}{% for n in payment.check.notes %} · {{ n }}{% endfor %}</p>
+  <pre id="pay-text" hidden>{{ payment.copy_text }}</pre>
+</section>
+{% endif %}
+
+<section class="tasks">
+  <h3>Tasks &amp; reminders <span class="chip">{{ tasks|length }}</span></h3>
+  {% if tasks %}
+  <table class="facts tasklist">
+    <tr><th>due</th><th>task</th><th>scan</th><th>status</th><th>reminders</th><th></th></tr>
+    {% for t in tasks %}
+    <tr>
+      <td>{{ t.due_fmt or '—' }}</td>
+      <td>{{ t.title }} {% if t.source == 'analysis' %}<span class="chip">auto</span>{% endif %}</td>
+      <td>{{ t.sheet_no }}</td>
+      <td>{{ t.status }}</td>
+      <td class="dim">{{ t.reminder_line }}</td>
+      <td class="rowbtns">
+        {% if t.ics %}<a href="{{ url_for('task_ics', tid=t.id) }}" title="calendar file for this deadline">.ics</a>{% endif %}
+        {% if t.status == 'open' %}
+        <form method="post" action="{{ url_for('task_status', tid=t.id) }}"><input type="hidden" name="status" value="done"><button type="submit">done</button></form>
+        <form method="post" action="{{ url_for('task_status', tid=t.id) }}"><input type="hidden" name="status" value="cancelled"><button type="submit">cancel</button></form>
+        {% else %}
+        <form method="post" action="{{ url_for('task_status', tid=t.id) }}"><input type="hidden" name="status" value="open"><button type="submit">reopen</button></form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="dim">no tasks — deadlines found by the analyzer appear here automatically.</p>
+  {% endif %}
+</section>
+
+{% set docs_total = sheets | map(attribute='docs') | map('length') | sum %}
+{% if docs_total %}
+<section class="analysis">
+  {% for s in sheets %}{% for d in s.docs %}
+  <article class="doc">
+    <h3>{{ d.title }} <span class="chip">scan {{ s.sheet_no }}</span>
+      <span class="chip pri pri-{{ (d.priority or 'p3')|lower }}">{{ d.priority or 'P3' }}</span>
+      <span class="chip">{{ d.category }}</span>
+      <span class="chip">{{ d.disposition }}</span>
+      {% if d.needs_review %}<span class="chip warn">needs review{% if d.review_reason %}: {{ d.review_reason }}{% endif %}</span>{% endif %}
+    </h3>
+    <p class="who">{{ d.sender or '—' }}{% if d.recipient %} → {{ d.recipient }}{% endif %}</p>
+    <p>{{ d.summary }}</p>
+    <p class="dim small"><a href="{{ url_for('sheet_view', sid=s.id) }}">open scan for the cited facts →</a></p>
+  </article>
+  {% endfor %}{% endfor %}
+</section>
+{% endif %}
+
+<script>
+// Copy the prepared payment block (http LAN -> textarea fallback).
+document.getElementById('copy-pay')?.addEventListener('click', async (ev) => {
+  const btn = ev.target;
+  const text = document.getElementById('pay-text').textContent.trim();
+  let ok = false;
+  try { await navigator.clipboard.writeText(text); ok = true; } catch (e) {}
+  if (!ok) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;opacity:0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { ok = document.execCommand('copy'); } catch (e) {}
+    ta.remove();
+  }
+  btn.textContent = ok ? 'copied' : 'copy failed — select manually';
+  setTimeout(() => { btn.textContent = 'copy payment details'; }, 1600);
+});
+</script>
+</body>
+</html>
