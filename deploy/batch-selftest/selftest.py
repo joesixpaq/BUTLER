@@ -14,7 +14,9 @@ letter-status + removal banner · old per-sheet status route gone
 scans-root + scan-watch paths env-isolated so live dirs are never touched)
 · live board (auto-refresh hook, delegated interactions, reading-progress text)
 · analysis gates (hold + schedule + analyze-now)
-· intake race guard (settle window, open-session membership, duplicate self-heal).
+· intake race guard (settle window, open-session membership, duplicate self-heal)
+· button-push intake (physical Scan button -> FTP PDF -> one letter: duplex
+  pairing, settle window, idempotent, original kept).
 """
 import json
 import os
@@ -537,6 +539,92 @@ def test_intake_race(web):
         ii.SCAN_DIRS, ii.SESSIONS_DIR = saved
 
 
+def test_push_intake(web):
+    """Physical-button pushes: incoming/*.pdf -> ONE letter batch."""
+    import butler.intake as ii
+    import butler.push as pp
+    import butler.web as W
+    import fitz
+
+    root = TMP / "push"
+    inc = root / "incoming"
+    inc.mkdir(parents=True, exist_ok=True)
+    sessions = root / "sessions"
+    sessions.mkdir(parents=True, exist_ok=True)
+    saved = (pp.INCOMING, list(ii.SCAN_DIRS), ii.SESSIONS_DIR)
+    pp.INCOMING = inc
+    # keep ingest() away from the live scans dirs while testing the push path
+    ii.SCAN_DIRS = [root / "direct", inc]
+    ii.SESSIONS_DIR = sessions
+
+    def mk_pdf(name, pages):
+        d = fitz.open()
+        for i in range(pages):
+            pg = d.new_page(width=595, height=842)
+            pg.insert_text((72, 100), f"Push test page {i + 1}")
+        p = inc / name
+        d.save(str(p))
+        d.close()
+        return p
+
+    try:
+        fresh = mk_pdf("Report_000001.pdf", 3)          # 3 pages -> 2 sheets
+        new, _ = ii.ingest(notify=False)
+        check("P1 fresh upload waits out the settle window",
+              ("push/Report_000001", 2) not in new)
+        t = time.time() - 60
+        os.utime(fresh, (t, t))
+        new, _ = ii.ingest(notify=False)
+        check("P2 settled PDF -> one letter (3 pages -> 2 sheets)",
+              ("push/Report_000001", 2) in new)
+
+        folder = inc / "Report_000001"
+        con = db.connect()
+        b = con.execute("SELECT * FROM batches WHERE key='push/Report_000001'"
+                        ).fetchone()
+        rows = [dict(r) for r in con.execute(
+            "SELECT * FROM sheets WHERE batch_id=? ORDER BY sheet_no",
+            (b["id"],))] if b else []
+        con.close()
+        check("P3 batch source/folder", b and (b["source"], b["folder"]) ==
+              ("push", str(folder)), f"{b['source'] if b else None}")
+        eq("P4 duplex front/back pairing",
+           [(r["front"], r["back"]) for r in rows],
+           [("sheets/sheet_01_front.jpg", "sheets/sheet_01_back.jpg"),
+            ("sheets/sheet_02_front.jpg", "")])
+        check("P5 rendered sides exist on disk",
+              all((folder / r["front"]).exists() for r in rows)
+              and (folder / "sheets/sheet_02_front.jpg").stat().st_size > 5000)
+        check("P6 original PDF kept inside the folder + marker",
+              (folder / "Report_000001.pdf").exists()
+              and (folder / "push.json").exists())
+        check("P7 sheets start in inbox (gates apply)",
+              rows and all(r["status"] == "inbox" for r in rows))
+        pdf_p = W._batch_pdf("push/Report_000001", str(folder))
+        check("P8 letter PDF resolves for the push batch",
+              pdf_p is not None and pdf_p.name == "Report_000001.pdf")
+
+        new, _ = ii.ingest(notify=False)
+        check("P9 idempotent — no duplicate on re-ingest", new == [])
+        check("P10 push folder ignored by the generic run scanner",
+              all(r.name != "Report_000001" for r in ii.find_runs([inc])))
+
+        odd = mk_pdf("Estimate_000002.pdf", 5)          # odd tail page
+        t = time.time() - 90
+        os.utime(odd, (t, t))
+        new, _ = ii.ingest(notify=False)
+        con = db.connect()
+        n = con.execute("SELECT COUNT(*) FROM sheets s JOIN batches b "
+                        "ON b.id=s.batch_id WHERE b.key='push/Estimate_000002'"
+                        ).fetchone()[0]
+        con.close()
+        check("P11 odd page count -> trailing front-only sheet",
+              ("push/Estimate_000002", 3) in new and n == 3,
+              f"new={new} n={n}")
+    finally:
+        pp.INCOMING, ii.SCAN_DIRS, ii.SESSIONS_DIR = saved
+
+
 def main():
     seed()
     from butler.web import app
@@ -550,6 +638,7 @@ def main():
     test_live_board(web)
     test_analyze_gates(web)
     test_intake_race(web)
+    test_push_intake(web)
     print()
     if FAIL:
         print(f"FAILURES: {FAIL}  (pass {PASS})")

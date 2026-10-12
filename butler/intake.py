@@ -35,7 +35,7 @@ import json
 import pathlib
 import time
 
-from . import db
+from . import db, push
 
 SCAN_DIRS = [
     pathlib.Path.home() / "scans" / "direct",
@@ -53,6 +53,8 @@ def find_runs(dirs=None):
             continue
         for p in sorted(d.iterdir()):
             if p.is_dir() and (p.name.startswith("pull_") or d.name == "incoming"):
+                if (p / "push.json").exists():
+                    continue  # button-push batch folder — push.py owns it
                 runs.append(p)
     return runs
 
@@ -184,6 +186,9 @@ def ingest(notify: bool = True, verbose: bool = False):
     sessions, member_runs = _load_sessions()
     con = db.connect()
     try:
+        # 0) physical-button pushes (device -> FTP -> incoming/*.pdf)
+        new.extend(push.process_pending(con, verbose=verbose))
+
         # 1) sessions first — closed ones register; open ones hold their runs
         for s in sessions:
             key = f"sessions/{s.get('session_id')}"

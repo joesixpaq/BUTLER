@@ -7,11 +7,11 @@ No hardware; temp DB + temp dirs.
 
     cd ~/BUTLER && python3 deploy/batch-selftest/selftest.py
 
-Last run 2026-10-12: **ALL PASS (83 checks)** (layout: 7 status lanes + new-tab
+Last run 2026-10-13: **ALL PASS (94 checks)** (layout: 7 status lanes + new-tab
 hook; trash endpoint: form → 302 board, API → JSON; scans-root + scan-watch
 paths env-isolated — the suite never touches live dirs; live board:
 auto-refresh hook + reading-progress text; analysis gates G1–G10; intake race
-guard N1–N6).
+guard N1–N6; button-push intake P1–P11).
 
 Covers:
 - one board card per letter (trashed letters hidden; header letter/scan counts)
@@ -39,5 +39,10 @@ Covers:
 - intake race guard: fresh runs wait out the settle window; open-session
   member runs are skipped; a premature standalone duplicate is auto-retired
   when its session registers (registry-only — files stay on disk)
+- button-push intake: a settled `incoming/*.pdf` (device Scan button) becomes
+  ONE `push/<stem>` letter; pages pair duplex into `sheets/sheet_XX_front|back.jpg`
+  (odd tail = front-only); renders on disk; original PDF kept in the folder +
+  `push.json` marker; idempotent; generic run scanner skips push folders; the
+  letter PDF resolves for the push batch
 - scan page: letter-status form (posts to the batch), removal banner + restore,
   old per-sheet status route is gone (404)

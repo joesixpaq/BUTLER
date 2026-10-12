@@ -87,11 +87,15 @@ def _abs_path(folder, rel):
 
 
 def _batch_pdf(batch_key, folder):
-    """Batch PDF: sessions -> merged session PDF; runs -> newest in-folder PDF."""
+    """Batch PDF: sessions -> merged session PDF; push -> received PDF;
+    runs -> newest in-folder PDF."""
     if batch_key and batch_key.startswith("sessions/"):
         sid = batch_key.split("/", 1)[1]
         p = pathlib.Path(folder) / f"scan_session_{sid}.pdf"
         return p if p.exists() else None
+    if batch_key and batch_key.startswith("push/"):
+        pdfs = sorted(pathlib.Path(folder).glob("*.pdf"))
+        return pdfs[-1] if pdfs else None
     pdfs = sorted(pathlib.Path(folder).glob("scan_*.pdf"))
     return pdfs[-1] if pdfs else None
 
