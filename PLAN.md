@@ -14,7 +14,7 @@
 
 ## 2. Principles
 
-1. **Provider-agnostic LLM layer.** Analysis runs through one adapter. Now: **DeepSeek API** (`deepseek-flash`, native image input — verified 2026-09-25; page images are analyzed directly, no separate OCR step). **Live since 2026-10-10:** the local option is wired — `butler llm monster` switches analysis to the llama.cpp VLM on `monster` (tailnet; no key); DeepSeek remains the default. *Conscious tradeoff (user decision): page images/text go to DeepSeek for analysis; raw scans and the full library stay local.*
+1. **Provider-agnostic LLM layer.** Analysis runs through one adapter. **Runtime backend (user decision 2026-10-12): `monster`** — the local llama.cpp VLM on the tailnet (Swift-1.5 Qwen3.8-Flash-Next, mmproj vision, reasoning xhigh; no key; **page images never leave the house**). `butler llm deepseek|monster` switches (read per call — no restarts). DeepSeek (`deepseek-flash`, native image input) remains the fallback and is the LLM BUTLER is **developed and debugged with**. No separate OCR step — page images are analyzed directly.
 2. **Never destructive.** Originals immutable; no auto-delete; no auto-send; no auto-pay.
 3. **Every claim cited.** Each extracted fact carries provenance (sheet/side). Unreadable → `unresolved`, never invented.
 4. **Confidence + review queue.** Low confidence → review pile; nothing silently misfiled.
@@ -47,7 +47,7 @@ scanner ─► intake watcher ─► registry (SQLite) ─► assembler (sheets�
 
 - All services on hermes-rpi5 as systemd `--user` units; SQLite for state; artifacts on disk; raw scans immutable.
 - Paths: `~/BUTLER/` — `var/butler.db`, `library/<year>/…`, `board/` (app), `PLAN.md` (this).
-- LLM: `deepseek-flash` via DeepSeek API; key auto-sourced from Hermes's own store (`~/.hermes/.env`, live-verified 2026-10-10); optional override `~/.config/butler/deepseek.key`. Local swap = live (`butler llm monster`; second adapter in `butler/llm.py`).
+- LLM: adapter `butler/llm.py` — **runtime: `monster`** (local llama.cpp VLM, tailnet, no key — images stay local) · **dev/debug + fallback: `deepseek-flash`** (key auto-sourced from the Hermes store, `~/.hermes/.env`; optional override `~/.config/butler/deepseek.key`). Switch: `butler llm monster|deepseek` (read on every call).
 - Board: LAN-only web app on hermes-rpi5, port **9500**, dark theme, minimal (Flask + SQLite + light JS).
 - systemd `--user` units: `butler-intake.service` (watcher, 30 s poll) · `butler-analyze.service` (vision analysis loop, 20 s) · `butler-board.service` (:9500) · `scan-watch.service` (ADS-1000W auto-grab: ICMP watch + scan attempts → intake).
 
@@ -153,3 +153,5 @@ Open minor items: DeepSeek key auto-sourced (no action needed); board live on :9
   - **Live proof on the real Post CH invoice**: QR decoded from sheet 7 (CHF 52.00, QRR ref `10 40100 00069 00681 08049 12003`, checks amount/account/reference all ok); task "Zahlbar bis 04.11.2026" → due 04.11 (reminder plan next 14 → 21.10, T-1 → 03.11); dry-runs verified at T-14/T-1/overdue; **one real end-to-end reminder delivered to Telegram** (self-test task, cancelled after — the full loop: build → send → mark).
   - Regression: `deploy/p3-selftest/selftest.py` — **85 checks ALL PASS** (incl. D1–D8 real-slip decode + F1–F19 reminder walk incl. retry/dry/catch-up/sibling-payment).
 - **2026-10-12 note** — test artifact from the P3 loop: a reminder test task placed on sheet 2 (batch #1 = trashed) was correctly NOT pinged — the trashed-batch guard works; artifacts cleaned from the registry.
+- **2026-10-12 21:00** — **Analysis backend switched to `monster` (user decision)**: BUTLER's runtime mail analysis now runs on the local llama.cpp VLM — page images no longer leave the house. The software itself continues to be developed and debugged on DeepSeek (and `butler llm deepseek` remains the fallback). Smoke test: production prompt path on the real invoice scan (sheet 5 front) — result appended below.
+- **2026-10-12 21:05** — P3 regression re-run with `monster` active: `deploy/p3-selftest/selftest.py` **85 checks ALL PASS** (the suite exercises the deterministic layer — QR/reminders — so it is backend-independent).
