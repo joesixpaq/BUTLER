@@ -7,10 +7,10 @@ No hardware; temp DB + temp dirs.
 
     cd ~/BUTLER && python3 deploy/batch-selftest/selftest.py
 
-Last run 2026-10-12: **ALL PASS (67 checks)** (layout: 7 status lanes + new-tab
+Last run 2026-10-12: **ALL PASS (77 checks)** (layout: 7 status lanes + new-tab
 hook; trash endpoint: form → 302 board, API → JSON; scans-root + scan-watch
 paths env-isolated — the suite never touches live dirs; live board:
-auto-refresh hook + reading-progress text).
+auto-refresh hook + reading-progress text; analysis gates G1–G10).
 
 Covers:
 - one board card per letter (trashed letters hidden; header letter/scan counts)
@@ -32,5 +32,8 @@ Covers:
 - live board: 5 s auto-refresh of lanes + header note (delegated click/drag
   survive the swaps; no-op when unchanged); fresh-feed card shows
   "reading scan X of Y…" while the analyzer is mid-flight
+- analysis gates: hold-minutes gate, daily schedule slot, board countdown +
+  inbox-lane "analyze now", letter-page "analyze now", manual release lifts
+  both gates (batches.released)
 - scan page: letter-status form (posts to the batch), removal banner + restore,
   old per-sheet status route is gone (404)

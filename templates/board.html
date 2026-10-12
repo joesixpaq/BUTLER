@@ -26,7 +26,9 @@
 <main class="board">
   {% for st in statuses %}
   <section class="lane" data-status="{{ st }}">
-    <h2>{{ st }} <span class="count">{{ cols[st]|length }}</span></h2>
+    <h2>{{ st }} <span class="count">{{ cols[st]|length }}</span>
+      {% if st == 'inbox' and cols[st] %}<form method="post" action="{{ url_for('analyze_now') }}"><button type="submit" class="mini" title="lift the hold + schedule for everything waiting — analyze now">analyze now</button></form>{% endif %}
+    </h2>
     <div class="cards">
       {% for c in cols[st] %}
       {% set b = c.b %}
@@ -56,7 +58,7 @@
           <div class="factsline">{{ b.key.split('/')[-1] }} · blank or advert?</div>
           {% else %}
           <div class="title">Letter <span class="batch">· {{ b.key.split('/')[-1] }}</span></div>
-          <div class="factsline">{% if b.note %}{{ b.note }} · {% endif %}{% if c.started_n %}reading scan {{ c.analyzed_n + 1 }} of {{ c.n_scans }}…{% else %}waiting for analysis{% if c.n_scans > 1 %} · {{ c.n_scans }} scans{% endif %}{% endif %}</div>
+          <div class="factsline">{% if b.note %}{{ b.note }} · {% endif %}{% if c.started_n %}reading scan {{ c.analyzed_n + 1 }} of {{ c.n_scans }}…{% else %}waiting for analysis{% if c.wait_until %} — at {{ c.wait_until }}{% endif %}{% if c.n_scans > 1 %} · {{ c.n_scans }} scans{% endif %}{% endif %}</div>
           {% endif %}
         </div>
       </article>

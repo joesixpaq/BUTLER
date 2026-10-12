@@ -42,7 +42,7 @@ def cmd_analyze(a):
         r = analyzer.analyze_sheet(a.sheet, notify=not a.no_notify, verbose=True)
         print(json.dumps(r, ensure_ascii=False, indent=2)[:3000])
         return 0
-    done = analyzer.run_pending(notify=not a.no_notify, verbose=True)
+    done = analyzer.run_pending(notify=not a.no_notify, verbose=True, force=a.force)
     print("analyzed:", done)
     return 0
 
@@ -223,6 +223,8 @@ def main():
     p = sub.add_parser("analyze", help="analyze pending sheets (or one with --sheet N)")
     p.add_argument("--sheet", type=int, default=None)
     p.add_argument("--no-notify", action="store_true")
+    p.add_argument("--force", action="store_true",
+                   help="ignore the hold + schedule gates (one-off runs)")
     p.set_defaults(fn=cmd_analyze)
 
     p = sub.add_parser("analyze-loop", help="analyze pending sheets continuously (daemon)")

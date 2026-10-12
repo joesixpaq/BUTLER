@@ -10,7 +10,9 @@ Swiss QR payment decode (qrpay) + deadline facts → tasks (tasks).
 
 Provider-agnostic: the model call lives behind llm.analyze_images().
 """
+import datetime
 import json
+import os
 import pathlib
 import re
 import socket
@@ -26,6 +28,61 @@ VALID_PRIORITIES = {"P0", "P1", "P2", "P3"}
 FACT_KINDS = {"amount_due", "amount_paid", "salary", "deadline", "document_date",
               "reference", "account", "case_number", "subject", "other"}
 MAX_ATTEMPTS = 3
+
+# Analysis start gates (user decision 2026-10-12 night): a new letter waits in
+# INBOX for at least `hold_minutes` after registration AND until the next `at`
+# clock time — then the analyzer picks it up. "analyze now" lifts both gates
+# (batches.released). Config: ~/.config/butler/analyze.json
+# {"hold_minutes": 60, "at": ["22:00"]}; env overrides BUTLER_ANALYZE_HOLD /
+# BUTLER_ANALYZE_AT (comma list; empty string disables the schedule gate).
+GATE_FILE = pathlib.Path.home() / ".config/butler/analyze.json"
+
+
+def gate_cfg() -> dict:
+    hold, at = 60, ["22:00"]
+    try:
+        raw = json.loads(GATE_FILE.read_text())
+        if raw.get("hold_minutes") is not None:
+            hold = max(0, int(raw["hold_minutes"]))
+        if raw.get("at") is not None:
+            at = [str(x).strip() for x in raw["at"] if str(x).strip()]
+    except Exception:
+        pass
+    if os.environ.get("BUTLER_ANALYZE_HOLD") not in (None, ""):
+        hold = max(0, int(os.environ["BUTLER_ANALYZE_HOLD"]))
+    if "BUTLER_ANALYZE_AT" in os.environ:
+        at = [x.strip() for x in os.environ["BUTLER_ANALYZE_AT"].split(",") if x.strip()]
+    return {"hold_minutes": hold, "at": at}
+
+
+def _next_slot(ts: float, times):
+    """First occurrence of any 'HH:MM' strictly after ts (local time), or None."""
+    if not times:
+        return None
+    base = datetime.datetime.fromtimestamp(ts)
+    best = None
+    for t in times:
+        try:
+            hh, mm = (int(x) for x in t.split(":", 1))
+            cand = base.replace(hour=hh, minute=mm, second=0, microsecond=0)
+            if cand <= base:
+                cand += datetime.timedelta(days=1)
+        except Exception:
+            continue
+        if best is None or cand < best:
+            best = cand
+    return best.timestamp() if best else None
+
+
+def release_ts(created_at: float, cfg=None) -> float:
+    """When this batch may be analyzed: registration + hold, and not before the
+    next scheduled clock time."""
+    cfg = cfg or gate_cfg()
+    ts = float(created_at or 0) + cfg["hold_minutes"] * 60
+    slot = _next_slot(float(created_at or 0), cfg["at"])
+    if slot is not None:
+        ts = max(ts, slot)
+    return ts
 
 SYSTEM = (
     "You are the mail analyst inside BUTLER, a private mail-triage system for one "
@@ -281,11 +338,15 @@ def _notify_doc(sid, d, idx, total):
     return send_telegram("\n".join(lines))
 
 
-def pending_sheet_ids():
+def pending_sheet_ids(force=False):
+    """Sheets ready for analysis. Release gates (hold + schedule) apply unless
+    force=True or the batch was released via 'analyze now' (batches.released)."""
     con = db.connect()
     try:
-        return [r["id"] for r in con.execute(
-            "SELECT s.id FROM sheets s JOIN batches b ON b.id=s.batch_id "
+        rows = [dict(r) for r in con.execute(
+            "SELECT s.id, b.created_at AS bcreated, "
+            "COALESCE(b.released,0) AS breleased "
+            "FROM sheets s JOIN batches b ON b.id=s.batch_id "
             "LEFT JOIN analyses a ON a.sheet_id=s.id "
             "WHERE s.status IN ('inbox','analyzing') "
             "AND COALESCE(b.status,'')!='trashed' "
@@ -295,12 +356,18 @@ def pending_sheet_ids():
             "ORDER BY s.id", (MAX_ATTEMPTS,))]
     finally:
         con.close()
+    if force:
+        return [r["id"] for r in rows]
+    cfg = gate_cfg()
+    now = time.time()
+    return [r["id"] for r in rows
+            if r["breleased"] or release_ts(r["bcreated"], cfg) <= now]
 
 
-def run_pending(notify=True, verbose=False):
+def run_pending(notify=True, verbose=False, force=False):
     db.init()
     done = []
-    for sid in pending_sheet_ids():
+    for sid in pending_sheet_ids(force=force):
         try:
             r = analyze_sheet(sid, notify=notify, verbose=verbose)
             done.append(sid if r.get("status") != "error" else f"{sid}:error")

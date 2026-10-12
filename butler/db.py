@@ -108,6 +108,9 @@ def _migrate(con) -> None:
     bcols = {r["name"] for r in con.execute("PRAGMA table_info(batches)")}
     if "board_status" not in bcols:
         con.execute("ALTER TABLE batches ADD COLUMN board_status TEXT")
+    if "released" not in bcols:
+        # user pressed "analyze now" — bypasses the hold + schedule gates
+        con.execute("ALTER TABLE batches ADD COLUMN released INTEGER DEFAULT 0")
     scols = {r["name"] for r in con.execute("PRAGMA table_info(sheets)")}
     for c in ("excluded", "front_excluded", "back_excluded"):
         if c not in scols:

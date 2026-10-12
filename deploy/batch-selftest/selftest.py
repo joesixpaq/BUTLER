@@ -31,6 +31,9 @@ os.environ["BUTLER_SCANS_DIR"] = str(TMP / "scans")
 os.environ["BUTLER_SW_SESSIONS"] = str(TMP / "scans" / "sessions")
 os.environ["BUTLER_SW_STATE"] = str(TMP / "sw-state.json")
 os.environ["BUTLER_SW_REQUEST"] = str(TMP / "sw-request.json")
+# analysis gates off by default in tests (gates have their own section)
+os.environ["BUTLER_ANALYZE_HOLD"] = "0"
+os.environ["BUTLER_ANALYZE_AT"] = ""
 
 from butler import db  # noqa: E402
 
@@ -395,6 +398,66 @@ def test_live_board(web):
     check("L4 delegated card interactions", "closest('.card')" in js)
 
 
+def test_analyze_gates(web):
+    """Hold + schedule gates for analysis start, and the manual override."""
+    import datetime as _dt
+    import time as _time
+    con = db.connect()
+    con.execute("INSERT INTO batches(id,key,ts,source,folder,status,created_at,released) "
+                "VALUES (6,'sessions/20261012_150000','20261012_150000','scanner',?,"
+                "'registered',?,0)", (str(TMP / "b6"), _time.time()))
+    con.execute("INSERT INTO sheets(id,batch_id,sheet_no,front,back,status) VALUES "
+                "(9,6,1,'sheets/s3_front.jpg',NULL,'inbox')")
+    con.commit()
+    con.close()
+
+    def set_gates(hold, at):
+        os.environ["BUTLER_ANALYZE_HOLD"] = str(hold)
+        os.environ["BUTLER_ANALYZE_AT"] = at
+
+    def set_created(delta):
+        con = db.connect()
+        con.execute("UPDATE batches SET created_at=?, released=0 WHERE id=6",
+                    (_time.time() + delta,))
+        con.commit()
+        con.close()
+
+    try:
+        set_gates(60, "")
+        check("G1 hold gates a fresh letter", 9 not in A.pending_sheet_ids())
+        set_gates(0, "")
+        check("G2 hold 0 -> analyzable", 9 in A.pending_sheet_ids())
+
+        ahead = (_dt.datetime.now() + _dt.timedelta(minutes=2)).strftime("%H:%M")
+        past = (_dt.datetime.now() - _dt.timedelta(minutes=2)).strftime("%H:%M")
+        set_created(0)
+        set_gates(0, ahead)
+        check("G3 schedule gates before the slot", 9 not in A.pending_sheet_ids())
+        set_created(-3600)
+        set_gates(0, past)
+        check("G4 slot already passed -> analyzable", 9 in A.pending_sheet_ids())
+
+        # board + letter page show the wait and offer the manual release
+        set_created(0)
+        set_gates(600, ahead)
+        html = web.get("/").get_data(as_text=True)
+        blk = col_block(html, "inbox")
+        check("G5 card shows when analysis starts", 'data-batch="6"' in blk
+              and "waiting for analysis — at " in blk)
+        check("G6 inbox lane offers analyze-now", "analyze now" in blk)
+        html = web.get("/batch/6").get_data(as_text=True)
+        check("G7 letter page offers analyze-now", "analyze now" in html
+              and "analysis starts at" in html)
+
+        r = web.post("/api/analyze-now", data={"bid": "6"})
+        eq("G8 form release -> 302 to letter", r.status_code, 302)
+        check("G9 released despite gates", 9 in A.pending_sheet_ids())
+        html = web.get("/batch/6").get_data(as_text=True)
+        check("G10 countdown gone after release", "analysis starts at" not in html)
+    finally:
+        set_gates(0, "")
+
+
 def main():
     seed()
     from butler.web import app
@@ -406,6 +469,7 @@ def main():
     test_letter_page(web)
     test_trash_endpoint(web)
     test_live_board(web)
+    test_analyze_gates(web)
     print()
     if FAIL:
         print(f"FAILURES: {FAIL}  (pass {PASS})")

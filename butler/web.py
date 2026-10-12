@@ -21,12 +21,12 @@ import shutil
 import time
 import uuid
 
-from datetime import date
+from datetime import date, datetime
 
 from flask import (Flask, abort, jsonify, redirect, render_template,
                    request, send_file, url_for)
 
-from . import ROOT, db, qrpay, tasks
+from . import ROOT, analyze, db, qrpay, tasks
 
 app = Flask(__name__, template_folder=str(ROOT / "templates"),
             static_folder=str(ROOT / "static"))
@@ -97,6 +97,20 @@ def _batch_pdf(batch_key, folder):
 
 
 PRI_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+
+
+def _fmt_wait(ts: float) -> str:
+    """'22:00' when today, else '13.10. 22:00'."""
+    d = datetime.fromtimestamp(ts)
+    return d.strftime("%H:%M") if d.date() == date.today() else d.strftime("%d.%m. %H:%M")
+
+
+def _wait_until(b):
+    """Formatted analysis-release time for a waiting letter, or None."""
+    if b.get("released"):
+        return None
+    rel = analyze.release_ts(b.get("created_at") or 0)
+    return _fmt_wait(rel) if rel > time.time() else None
 
 
 def _batch_board_status(b, kept):
@@ -202,6 +216,7 @@ def board():
             "started_n": sum(1 for s in kept if s.get("status") == "analyzing"),
             "status": _batch_board_status(b, kept),
             "due_fmt": None, "due_cls": "", "pay": pay,
+            "wait_until": _wait_until(b),
         }
         if due_iso:
             dd0 = date.fromisoformat(due_iso)
@@ -290,6 +305,7 @@ def batch_view(bid):
     return render_template("batch.html", b=b, sheets=kept, removed=removed,
                            status=status, statuses=db.SHEET_STATUSES, pdf=pdf,
                            payment=payment, tasks=trows,
+                           wait_until=_wait_until(dict(b)),
                            trashed=(b["status"] == "trashed"))
 
 
@@ -560,6 +576,28 @@ def trash_batch(bid):
                             "multipart/form-data"):
         return redirect(url_for("board"))
     return jsonify(ok=True, moved=moved)
+
+
+@app.post("/api/analyze-now")
+def analyze_now():
+    """Lift the hold + schedule gates: release this letter (bid) or everything."""
+    body = request.get_json(silent=True) or {}
+    raw = body.get("bid") or request.form.get("bid") or None
+    bid = int(raw) if raw else None
+    con = db.connect()
+    try:
+        if bid:
+            con.execute("UPDATE batches SET released=1 WHERE id=? "
+                        "AND COALESCE(status,'')!='trashed'", (bid,))
+        else:
+            con.execute("UPDATE batches SET released=1 "
+                        "WHERE COALESCE(status,'')!='trashed'")
+        con.commit()
+    finally:
+        con.close()
+    if request.form:
+        return redirect(url_for("batch_view", bid=bid) if bid else url_for("board"))
+    return jsonify(ok=True)
 
 
 def main():

@@ -98,6 +98,16 @@
       <dt>scanned</dt><dd>{{ b.ts }}</dd>
       {% if b.note %}<dt>note</dt><dd>{{ b.note }}</dd>{% endif %}
       {% if pdf %}<dt>pdf</dt><dd><a href="{{ url_for('pdf', bid=b.id) }}">open letter PDF</a></dd>{% endif %}
+      {% if status == 'inbox' or wait_until %}
+      <dt>analysis</dt>
+      <dd>
+        <span class="dim small">{% if wait_until %}waits — analysis starts at {{ wait_until }}{% else %}queued — next analyzer pass{% endif %}</span>
+        <form method="post" action="{{ url_for('analyze_now') }}">
+          <input type="hidden" name="bid" value="{{ b.id }}">
+          <button type="submit" title="lift the hold + schedule and analyze this letter now">analyze now</button>
+        </form>
+      </dd>
+      {% endif %}
       <dt>trash</dt>
       <dd>
         {% if trashed %}<span class="chip warn">trashed</span>

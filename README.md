@@ -33,6 +33,11 @@ registers as one batch. Each batch can be archived ("trash", never deleted)
 from its letter or scan view — the browser button returns to the board; API
 posts (no form content type) get JSON with the archived paths.
 
+New letters then wait in the **inbox**: the analyzer starts only after the
+hold + schedule gates open (defaults: 1 h after registration AND the daily
+22:00 slot — `~/.config/butler/analyze.json`), or immediately when you press
+*analyze now* (letter page, or the inbox lane's button for everything).
+
 ## Board (letters)
 
 A batch = the sheets of **one letter**. The board shows one card per letter,
