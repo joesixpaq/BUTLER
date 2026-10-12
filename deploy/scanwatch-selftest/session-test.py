@@ -10,6 +10,7 @@ Covers:
   s3  orphan recovery: kill -9 with an open session -> restart closes it
   s4  idle timeout closes an abandoned session
   s5  scan request while the scanner is offline -> polite "offline" result
+  s6  jam/partial capture (rc=5) opens/extends the session + warns on the board
   B   intake: closed session = one batch (+merged PDF), member runs skipped,
       open session held, stale-open registered, idempotent re-ingest,
       settle window + duplicate self-heal (membership race guard)
@@ -209,6 +210,28 @@ def s5_offline_request():
     sw.stop()
 
 
+def s6_jam_capture():
+    print("--- s6: jam/partial capture joins the session ---")
+    sw = SW(tempfile.mkdtemp(prefix="sw6_"), ["partial", "capture"])
+    sw.start()
+    check("s6a scanner online", sw.wait_for(lambda: sw.state().get("mode") == "online"))
+    sw.request("scan")
+    check("s6b partial capture opens session (2 sheets)",
+          sw.wait_for(lambda: bool(sw.sessions()) and sw.sessions()[0].get("sheets") == 2),
+          str(sw.sessions()))
+    lr = sw.state().get("last_request") or {}
+    check("s6c jam warning on the board result",
+          lr.get("rc") == 5 and "partial capture" in lr.get("note", ""), str(lr))
+    sw.request("scan")
+    check("s6d later capture extends the same session",
+          sw.wait_for(lambda: len(sw.sessions()[0].get("runs", [])) == 2),
+          str(sw.sessions()))
+    s = sw.sessions()[0]
+    check("s6e session totals 4 sheets in 2 runs",
+          s.get("sheets") == 4 and len(s.get("runs", [])) == 2)
+    sw.stop()
+
+
 def phase_b_intake():
     print("--- B: intake session registration ---")
     sys.path.insert(0, str(REPO))
@@ -385,6 +408,7 @@ def main():
     s3_orphan_recovery()
     s4_idle_timeout()
     s5_offline_request()
+    s6_jam_capture()
     tmp_b = phase_b_intake()
     phase_c_web(tmp_b)
     print()

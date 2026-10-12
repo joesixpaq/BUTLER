@@ -5,7 +5,7 @@ the physical scanner (plan-driven fake pull script + pingable localhost).
 
     python3 deploy/scanwatch-selftest/session-test.py
 
-Covers (43 checks): request → capture → session open/extend → finish; **no
+Covers (48 checks): request → capture → session open/extend → finish; **no
 spontaneous attempts** (ICMP watch only — ambient scanning was removed
 2026-10-12 at the user's request); kill -9 orphan recovery on restart; idle
 timeout; offline request note; intake registration (closed session = one batch
@@ -13,7 +13,7 @@ timeout; offline request note; intake registration (closed session = one batch
 idempotent re-ingest); board API (scanner status, scan request file, offline
 refusal, trash: archive + mark + hide + banner).
 
-Last run 2026-10-12: **ALL PASS** (43 checks, ~40 s).
+Last run 2026-10-12: **ALL PASS** (48 checks, ~50 s).
 
 ## fake-scan.py — plan-driven fake scanner (used by the tests)
 

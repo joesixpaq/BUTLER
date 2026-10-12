@@ -266,8 +266,12 @@ def handle_request(cfg, req, session, online):
         else:
             rc, dur, runner, tail = attempt(cfg)
             res.update(rc=rc, dur=round(dur, 1))
-            if rc == 0:
-                n = run_sheet_count(runner)
+            n = run_sheet_count(runner)
+            if rc == 0 or (rc == 5 and n >= 1):
+                # rc=5 = partial capture (jam): the sheets still belong to the
+                # feeding session — keep them in the letter and warn (live bug
+                # 2026-10-12 23:50: a jammed capture fell out of the session
+                # flow and surfaced as its own standalone letter)
                 if session is None:
                     session = new_session()
                     log(cfg, f"SESSION OPEN — {session['session_id']}")
@@ -276,9 +280,13 @@ def handle_request(cfg, req, session, online):
                 session["last_activity"] = time.time()
                 write_session(cfg, session)
                 res.update(sheets=n, run=runner)
-                log(cfg, f"MANUAL CAPTURE rc=0 dur={dur:.1f}s run={runner} "
+                if rc == 5:
+                    res.update(note="partial capture — possible jam, check the feeder"
+                                    + (f" | {tail}" if tail else ""))
+                log(cfg, f"MANUAL CAPTURE rc={rc} dur={dur:.1f}s run={runner} "
                          f"sheets={n} (session {session['session_id']}: "
-                         f"{session['sheets']} sheet(s) / {len(session['runs'])} run(s))")
+                         f"{session['sheets']} sheet(s) / {len(session['runs'])} run(s))"
+                         + (f" | {tail}" if rc == 5 and tail else ""))
             elif rc == 3:
                 res.update(note="feeder empty — insert a sheet and scan again")
                 log(cfg, "MANUAL scan: feeder empty")

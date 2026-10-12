@@ -7,9 +7,11 @@ Env:
   SWTEST_N     path to the call-counter file, created on first call
                (default /tmp/swtest/n)
 
-Each call consumes the next step (past the end: "empty"). Captures create
+Each call consumes the next step (past the end: "empty"). Steps: "empty" |
+"capture" | "busy" | "error" | "partial". Captures create
 <--out>/pull_<ts>_<n>/ with manifest.json + 2 dummy sheets and print
-RUNNER_DIR=<dir>. rc: empty=3, busy=2, error=4, capture=0 (mirrors
+RUNNER_DIR=<dir>. rc: empty=3, busy=2, error=4, partial=5 (jam — sheets but no
+completion markers, stream_end "idle-90s"), capture=0 (mirrors
 brother-pull-scan.py's contract).
 """
 import json
@@ -42,6 +44,7 @@ if step == "error":
     print("TEST ERROR (test)", file=sys.stderr)
     sys.exit(4)
 
+partial = step == "partial"
 run = os.path.join(out, time.strftime("pull_%Y%m%d_%H%M%S") + f"_{n}")
 os.makedirs(os.path.join(run, "sheets"), exist_ok=True)
 sheets = []
@@ -55,6 +58,11 @@ for i in (1, 2):
     sheets.append({"index": i, **names})
 with open(os.path.join(run, "manifest.json"), "w") as f:
     json.dump({"scan_timestamp": time.strftime("%Y%m%d_%H%M%S"),
-               "sheets": sheets, "stream_end": "done-marker"}, f)
+               "sheets": sheets,
+               "stream_end": "idle-90s" if partial else "done-marker"}, f)
 print(f"RUNNER_DIR={run}")
+if partial:
+    # jam contract: sheets captured but the stream never completed — rc=5
+    print("WARNING: 2 incomplete side(s): [3, 4] (test partial)", file=sys.stderr)
+    sys.exit(5)
 sys.exit(0)
