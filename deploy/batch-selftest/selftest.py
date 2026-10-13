@@ -745,8 +745,9 @@ def test_coverage(web):
     eq("CV10 complete numbering -> no page hint", cov.hints_for(bx)["pages"], [])
 
     html = web.get("/").get_data(as_text=True)
-    check("CV11 board card shows dup chip",
-          f"dup of #{bx}?" in html and "missing 1/4?" in html)
+    check("CV11 board card shows dup chip (analyzed card + waiting card)",
+          f"dup of #{bx}?" in html and "missing 1/4?" in html
+          and f"dup of #{bx2}?" in html)
     con = db.connect()
     con.execute("UPDATE batches SET status='trashed' WHERE id=?", (bx,))
     con.commit()

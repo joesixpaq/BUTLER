@@ -61,6 +61,7 @@
           {% else %}
           <div class="title">Letter <span class="batch">· {{ b.key.split('/')[-1] }}</span></div>
           <div class="factsline">{% if b.note %}{{ b.note }} · {% endif %}{% if c.started_n %}reading scan {{ c.analyzed_n + 1 }} of {{ c.n_scans }}…{% else %}waiting for analysis{% if c.wait_until %} — at {{ c.wait_until }}{% endif %}{% if c.n_scans > 1 %} · {{ c.n_scans }} scans{% endif %}{% endif %}</div>
+          {% if c.cov.dups or c.cov.pages %}<div class="chips">{% if c.cov.dups %}{% set dup = c.cov.dups[0] %}<span class="chip warn" title="{{ dup.matched }} of {{ dup.mine }} sides were also captured in letter #{{ dup.other }} — possible re-scan (open the letter for details)">dup of #{{ dup.other }}{% if dup.trashed %} (trashed){% endif %}?</span>{% endif %}{% if c.cov.pages %}{% set pg = c.cov.pages[0] %}<span class="chip warn" title="page numbering: {{ pg.seen_txt }} seen — {{ pg.missing_txt }} not found in this letter">missing {{ pg.missing_txt }}?</span>{% endif %}</div>{% endif %}
           {% endif %}
         </div>
       </article>
