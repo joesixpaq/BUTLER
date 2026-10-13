@@ -26,6 +26,7 @@ import shutil
 import time
 
 from . import db  # noqa: F401  (callers pass a connection; kept for symmetry)
+from . import coverage
 
 SCANS_ROOT = pathlib.Path(os.environ.get(
     "BUTLER_SCANS_DIR", str(pathlib.Path.home() / "scans")))
@@ -128,6 +129,7 @@ def process_pending(con, verbose=False):
                      json.dumps({"push": True, "pages": [f, b]})),
                 )
             con.commit()
+            coverage.index_batch(bid, con=con)   # face identity for re-scan detection
             done.append((key, len(pairs)))
             if verbose:
                 print(f"[push] registered {key}: {pages} page(s) -> "

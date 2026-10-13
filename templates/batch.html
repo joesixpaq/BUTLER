@@ -81,6 +81,18 @@
       {% endfor %}
     </table>
     {% endif %}
+
+    {% if coverage and (coverage.dups or coverage.pages) %}
+    <h3 class="sec">Coverage checks <span class="chip warn">{{ coverage.dups|length + coverage.pages|length }}</span></h3>
+    <ul class="cov">
+      {% for d in coverage.dups %}
+      <li>≈ {{ d.matched }} of {{ d.mine }} sides also captured in letter <a href="{{ url_for('batch_view', bid=d.other) }}">#{{ d.other }}</a>{% if d.trashed %} (trashed){% endif %} — possible re-scan</li>
+      {% endfor %}
+      {% for p in coverage.pages %}
+      <li>{{ p.label }} {{ p.seen_txt }} seen — <b>{{ p.missing_txt }}</b> not found in this letter (possible missing page)</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
   </div>
 
   <aside>

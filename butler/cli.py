@@ -4,7 +4,7 @@ import json
 import sys
 import time
 
-from . import db, intake, llm, qrpay, tasks
+from . import coverage, db, intake, llm, qrpay, tasks
 from . import analyze as analyzer
 
 
@@ -185,6 +185,36 @@ def cmd_llm(a):
     return 0
 
 
+def cmd_coverage(a):
+    db.init()
+    con = db.connect()
+    try:
+        if a.index:
+            n = 0
+            for b in con.execute("SELECT id FROM batches ORDER BY id"):
+                n += coverage.index_batch(b["id"], con=con, rebuild=a.rebuild)
+            print(f"indexed {n} side(s)")
+            if not a.bid:
+                return 0
+        bids = [a.bid] if a.bid else [r["id"] for r in con.execute(
+            "SELECT id FROM batches WHERE COALESCE(status,'')!='trashed' ORDER BY id")]
+        for bid in bids:
+            h = coverage.hints_for(bid, con=con)
+            print(f"letter #{bid}:")
+            if not h["dups"] and not h["pages"]:
+                print("  (no hints)")
+            for d in h["dups"]:
+                print(f"  dup: {d['matched']}/{d['mine']} sides also captured in "
+                      f"#{d['other']}{' (trashed)' if d['trashed'] else ''} — "
+                      f"possible re-scan")
+            for p in h["pages"]:
+                print(f"  pages: {p['label']} {p['seen_txt']} seen — "
+                      f"{p['missing_txt']} not found")
+    finally:
+        con.close()
+    return 0
+
+
 def cmd_status(a):
     db.init()
     con = db.connect()
@@ -243,6 +273,13 @@ def main():
     p.set_defaults(fn=cmd_extract)
 
     sub.add_parser("tasks", help="list tasks with reminder progress").set_defaults(fn=cmd_tasks)
+
+    p = sub.add_parser("coverage", help="coverage hints: duplicate re-scans + missing pages")
+    p.add_argument("--index", action="store_true",
+                   help="(re)build face hashes for all batches (trashed included)")
+    p.add_argument("--rebuild", action="store_true", help="with --index: rehash from scratch")
+    p.add_argument("--bid", type=int, default=None, help="one letter (default: all live)")
+    p.set_defaults(fn=cmd_coverage)
 
     p = sub.add_parser("task", help="add or update one task")
     tsp = p.add_subparsers(dest="action", required=True)

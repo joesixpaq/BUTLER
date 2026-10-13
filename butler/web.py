@@ -26,7 +26,7 @@ from datetime import date, datetime
 from flask import (Flask, abort, jsonify, redirect, render_template,
                    request, send_file, url_for)
 
-from . import ROOT, analyze, db, qrpay, tasks
+from . import ROOT, analyze, coverage, db, qrpay, tasks
 
 app = Flask(__name__, template_folder=str(ROOT / "templates"),
             static_folder=str(ROOT / "static"))
@@ -221,6 +221,7 @@ def board():
             "status": _batch_board_status(b, kept),
             "due_fmt": None, "due_cls": "", "pay": pay,
             "wait_until": _wait_until(b),
+            "cov": coverage.hints_for(b["id"]),
         }
         if due_iso:
             dd0 = date.fromisoformat(due_iso)
@@ -310,6 +311,7 @@ def batch_view(bid):
                            status=status, statuses=db.SHEET_STATUSES, pdf=pdf,
                            payment=payment, tasks=trows,
                            wait_until=_wait_until(dict(b)),
+                           coverage=coverage.hints_for(bid),
                            trashed=(b["status"] == "trashed"))
 
 
@@ -385,6 +387,7 @@ def exclude_scan(sid):
         con.execute(f"UPDATE sheets SET {col}=? WHERE id=?", (value, sid))
         con.commit()
         bid = row["batch_id"]
+        coverage.index_batch(bid, con=con)   # keep face hashes in sync (kept sides)
     finally:
         con.close()
     if request.form:

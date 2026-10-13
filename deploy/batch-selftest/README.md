@@ -7,11 +7,11 @@ No hardware; temp DB + temp dirs.
 
     cd ~/BUTLER && python3 deploy/batch-selftest/selftest.py
 
-Last run 2026-10-13: **ALL PASS (94 checks)** (layout: 7 status lanes + new-tab
+Last run 2026-10-13: **ALL PASS (110 checks)** (layout: 7 status lanes + new-tab
 hook; trash endpoint: form → 302 board, API → JSON; scans-root + scan-watch
 paths env-isolated — the suite never touches live dirs; live board:
 auto-refresh hook + reading-progress text; analysis gates G1–G10; intake race
-guard N1–N6; button-push intake P1–P11).
+guard N1–N6; button-push intake P1–P11; coverage hints CV0–CV15).
 
 Covers:
 - one board card per letter (trashed letters hidden; header letter/scan counts)
@@ -44,5 +44,13 @@ Covers:
   (odd tail = front-only); renders on disk; original PDF kept in the folder +
   `push.json` marker; idempotent; generic run scanner skips push folders; the
   letter PDF resolves for the push batch
+- coverage hints: per-side face hashes (rotation-tolerant — a shifted re-scan
+  and a 180°-fed sheet still match; blank backs never match); >=2 matching
+  sides → possible-re-scan hint vs another letter (trashed targets marked);
+  page-numbering gaps reported ("Seite 2/4, 3/4, 4/4 seen — 1/4 not found",
+  bilingual Seite/Page merged, complete numbering silent); archived letters
+  still indexable (resolve falls back to `~/scans/archive/`); board card chips
+  + letter-page "Coverage checks" section; face hashes stay in sync when a
+  side is removed/restored
 - scan page: letter-status form (posts to the batch), removal banner + restore,
   old per-sheet status route is gone (404)

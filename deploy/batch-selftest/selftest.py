@@ -16,7 +16,12 @@ scans-root + scan-watch paths env-isolated so live dirs are never touched)
 · analysis gates (hold + schedule + analyze-now)
 · intake race guard (settle window, open-session membership, duplicate self-heal)
 · button-push intake (physical Scan button -> FTP PDF -> one letter: duplex
-  pairing, settle window, idempotent, original kept).
+  pairing, settle window, idempotent, original kept)
+· coverage hints (re-scan/duplicate detection via rotation-tolerant face
+  hashes — shift and 180°-fed sheets still match; blank sides excluded;
+  missing-page hints from page numbering, bilingual Seite/Page merged;
+  archive fallback for trashed letters; chips on the board, section on the
+  letter page; faces stay in sync with side removal).
 """
 import json
 import os
@@ -625,6 +630,151 @@ def test_push_intake(web):
         pp.INCOMING, ii.SCAN_DIRS, ii.SESSIONS_DIR = saved
 
 
+def test_coverage(web):
+    """Coverage layer: rotation-tolerant re-scan detection + page hints."""
+    from PIL import Image, ImageDraw
+    import butler.coverage as cov
+
+    base = TMP / "cov"
+    root = base / "scans"
+    cov.SCANS_ROOT = root          # archive fallback resolves under TMP
+
+    def draw(kind, path, rot=0, shift=(0, 0)):
+        im = Image.new("L", (820, 1160), 255)
+        d = ImageDraw.Draw(im)
+        if kind == "a":                      # header + dense text body
+            d.rectangle([70, 90, 750, 150], fill=0)
+            for i in range(12):
+                d.rectangle([70, 240 + 60 * i, 640 - 8 * i, 252 + 60 * i], fill=0)
+        elif kind == "b":                    # left column + footer band
+            d.rectangle([70, 980, 750, 1030], fill=0)
+            for i in range(7):
+                d.rectangle([70, 160 + 95 * i, 170 + 45 * i, 190 + 95 * i], fill=0)
+        elif kind == "c":                    # one big dark block (different mail)
+            d.rectangle([90, 100, 730, 420], fill=0)
+            d.rectangle([90, 470, 430, 520], fill=0)
+        elif kind == "speck":                # near-white with a small light mark
+            d.rectangle([120, 980, 150, 1010], fill=120)
+        # "blank": stays pure white
+        if shift != (0, 0):
+            canvas = Image.new("L", im.size, 255)
+            canvas.paste(im, shift)
+            im = canvas
+        if rot:
+            im = im.rotate(rot)
+        im.convert("RGB").save(str(path), quality=88)
+
+    for tag in ("x", "x2", "y"):
+        (base / tag / "sheets").mkdir(parents=True, exist_ok=True)
+    fx, fx2, fy = base / "x", base / "x2", base / "y"
+    draw("a", fx / "sheets/s1f.jpg")
+    draw("blank", fx / "sheets/s1b.jpg")
+    draw("b", fx / "sheets/s2f.jpg")
+    draw("blank", fx / "sheets/s2b.jpg")
+    draw("a", fx2 / "sheets/s1f.jpg", shift=(4, -3))     # re-scan: shifted
+    draw("speck", fx2 / "sheets/s1b.jpg")                # different near-blank back
+    draw("b", fx2 / "sheets/s2f.jpg", rot=180)           # re-scan: upside-down sheet
+    draw("blank", fx2 / "sheets/s2b.jpg")
+    draw("c", fy / "sheets/s1f.jpg")                     # different mail
+    draw("blank", fy / "sheets/s1b.jpg")
+
+    con = db.connect()
+
+    def mk_batch(key, folder, sides, status="registered"):
+        cur = con.execute(
+            "INSERT INTO batches(key,ts,source,folder,status,note,created_at) "
+            "VALUES (?,'20261013_090000','scanner',?,?,'',0)", (key, str(folder), status))
+        bid = cur.lastrowid
+        sids = []
+        for i, (f, b) in enumerate(sides, 1):
+            cur = con.execute(
+                "INSERT INTO sheets(batch_id,sheet_no,front,back,status) "
+                "VALUES (?,?,?,?,'review')", (bid, i, f, b))
+            sids.append(cur.lastrowid)
+        return bid, sids
+
+    PAIR = [("sheets/s1f.jpg", "sheets/s1b.jpg"), ("sheets/s2f.jpg", "sheets/s2b.jpg")]
+    bx, sx = mk_batch("cov/x", fx, PAIR)
+    bx2, sx2 = mk_batch("cov/x2", fx2, PAIR)
+    by, sy = mk_batch("cov/y", fy, [("sheets/s1f.jpg", "sheets/s1b.jpg")])
+    # archived letter: live folder is gone, files live in <scans>/archive/<name>/
+    bz, sz = mk_batch("cov/arch", base / "gone", [("sheets/s1f.jpg", None)])
+    con.commit()
+    con.close()
+    (root / "archive" / "gone" / "sheets").mkdir(parents=True, exist_ok=True)
+    draw("a", root / "archive" / "gone" / "sheets" / "s1f.jpg")
+
+    eq("CV0 non-image files are skipped silently", cov.index_batch(1), 0)
+    eq("CV1 index writes one face per kept side", cov.index_batch(bx), 4)
+    eq("CV2 X2 indexed", cov.index_batch(bx2), 4)
+    eq("CV3 Y indexed", cov.index_batch(by), 2)
+    con = db.connect()
+    eq("CV4 blank backs flagged not-matchable",
+       con.execute("SELECT COUNT(*) FROM faces WHERE batch_id=? AND blank=1",
+                   (bx,)).fetchone()[0], 2)
+    con.close()
+
+    d = cov.hints_for(bx2)["dups"]
+    check("CV5 re-scan detected (shift + 180° sheet still matches)",
+          len(d) == 1 and d[0]["other"] == bx and d[0]["matched"] == 2
+          and d[0]["mine"] == 2 and not d[0]["trashed"], str(d))
+    check("CV6 different mail -> no dup hint", cov.hints_for(by)["dups"] == [],
+          str(cov.hints_for(by)["dups"]))
+    check("CV7 symmetric: X flags X2",
+          any(x["other"] == bx2 for x in cov.hints_for(bx)["dups"]))
+    eq("CV8 archived letter still indexable", cov.index_batch(bz), 1)
+
+    # page hints: complete numbering -> silent; gap -> reported, bilingual merged
+    con = db.connect()
+    for sid, val in ((sx2[0], "Seite 2/4"), (sx2[1], "Seite 3/4"), (sx2[1], "Seite 4/4")):
+        con.execute("INSERT INTO facts(sheet_id,doc_idx,kind,value,citation,confidence) "
+                    "VALUES (?,0,'other',?,'test',1.0)", (sid, val))
+    con.execute("INSERT INTO analyses(sheet_id,ts,model,status,json,raw,attempts) "
+                "VALUES (?,0,'test','ok',?,?,0)",
+                (sx2[0], json.dumps({"documents": [DOC], "sheet_notes": ""}),
+                 "... Page 2/4 ... and Seite 2/4 ..."))
+    for sid, val in zip(sx, ("Seite 1/2", "Seite 2/2")):
+        con.execute("INSERT INTO facts(sheet_id,doc_idx,kind,value,citation,confidence) "
+                    "VALUES (?,0,'other',?,'test',1.0)", (sid, val))
+    con.commit()
+    con.close()
+    p = cov.hints_for(bx2)["pages"]
+    check("CV9 page gap reported, Seite/Page merged",
+          len(p) == 1 and p[0]["label"] == "Seite" and p[0]["seen"] == [2, 3, 4]
+          and p[0]["missing"] == [1] and p[0]["missing_txt"] == "1/4", str(p))
+    eq("CV10 complete numbering -> no page hint", cov.hints_for(bx)["pages"], [])
+
+    html = web.get("/").get_data(as_text=True)
+    check("CV11 board card shows dup chip",
+          f"dup of #{bx}?" in html and "missing 1/4?" in html)
+    con = db.connect()
+    con.execute("UPDATE batches SET status='trashed' WHERE id=?", (bx,))
+    con.commit()
+    con.close()
+    html = web.get("/").get_data(as_text=True)
+    check("CV12 trashed duplicate target marked on the chip",
+          f"dup of #{bx} (trashed)?" in html)
+    page = web.get(f"/batch/{bx2}").get_data(as_text=True)
+    check("CV13 letter page coverage section",
+          "Coverage checks" in page
+          and f'sides also captured in letter <a href="/batch/{bx}">#{bx}</a> (trashed)'
+          in page
+          and "<b>1/4</b> not found in this letter" in page)
+
+    r = web.post(f"/api/sheet/{sx2[0]}/exclude", json={"scope": "front"})
+    con = db.connect()
+    gone = con.execute("SELECT COUNT(*) FROM faces WHERE sheet_id=? AND side='front'",
+                       (sx2[0],)).fetchone()[0]
+    con.close()
+    eq("CV14 removed side drops its face row", (r.status_code, gone), (200, 0))
+    web.post(f"/api/sheet/{sx2[0]}/exclude", json={"scope": "front", "value": 0})
+    con = db.connect()
+    back = con.execute("SELECT COUNT(*) FROM faces WHERE sheet_id=? AND side='front'",
+                       (sx2[0],)).fetchone()[0]
+    con.close()
+    eq("CV15 restored side re-indexed", back, 1)
+
+
 def main():
     seed()
     from butler.web import app
@@ -639,6 +789,7 @@ def main():
     test_analyze_gates(web)
     test_intake_race(web)
     test_push_intake(web)
+    test_coverage(web)
     print()
     if FAIL:
         print(f"FAILURES: {FAIL}  (pass {PASS})")

@@ -86,6 +86,20 @@ CREATE TABLE IF NOT EXISTS payments(
   status     TEXT DEFAULT 'prepared',  -- prepared | paid
   status_ts  REAL
 );
+CREATE TABLE IF NOT EXISTS faces(
+  id         INTEGER PRIMARY KEY,
+  sheet_id   INTEGER REFERENCES sheets(id),
+  batch_id   INTEGER REFERENCES batches(id),
+  side       TEXT,                  -- front | back
+  h0         TEXT,                  -- rotation-tolerant dHash, 256 bits hex each:
+  h90        TEXT,                  -- the side image rotated by k degrees
+  h180       TEXT,                  -- before hashing (0/90/180/270)
+  h270       TEXT,
+  blank      INTEGER DEFAULT 0,     -- near-empty page: no identity value
+  ts         REAL,
+  UNIQUE(sheet_id, side)
+);
+CREATE INDEX IF NOT EXISTS idx_faces_batch ON faces(batch_id);
 """
 
 

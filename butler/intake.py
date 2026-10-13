@@ -35,7 +35,7 @@ import json
 import pathlib
 import time
 
-from . import db, push
+from . import coverage, db, push
 
 SCAN_DIRS = [
     pathlib.Path.home() / "scans" / "direct",
@@ -171,6 +171,7 @@ def _register_session(con, s, note_extra, verbose=False):
                     "note=COALESCE(note,'')||' · duplicate of sessions/'||?||"
                     "' (auto-retired)' WHERE id=?", (sid, dup["id"]))
     con.commit()
+    coverage.index_batch(bid, con=con)   # face identity for re-scan detection
     _merge_session_pdf(scans_root, runs, sid, verbose=verbose)
     return (f"sessions/{sid}", n)
 
@@ -245,6 +246,7 @@ def ingest(notify: bool = True, verbose: bool = False):
                      json.dumps({k: v for k, v in s.items() if k not in ("index", "front", "back")})),
                 )
             con.commit()
+            coverage.index_batch(bid, con=con)   # face identity for re-scan detection
             new.append((key, len(m.get("sheets", []))))
     finally:
         con.close()
